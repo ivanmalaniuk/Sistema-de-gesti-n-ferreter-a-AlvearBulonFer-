@@ -47,3 +47,14 @@ src/Reportes/
 Thumbs.db
 .idea/
 .vscode/
+
+# Backups de la base de datos
+backups/
+
+# Listas de precios (cualquier ubicación)
+*.xls
+*.xlsx
+
+# SQLite auxiliares
+*.db-wal
+*.db-shm
