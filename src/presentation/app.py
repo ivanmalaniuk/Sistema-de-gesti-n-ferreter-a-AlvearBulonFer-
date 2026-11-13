@@ -7,6 +7,7 @@ Configura el tema visual y crea el MainWindow con todas las pestanas.
 
 import os
 import sys
+import traceback
 from PIL import Image
 import customtkinter as ctk
 
@@ -31,8 +32,12 @@ class App(ctk.CTk):
         list_service,
         settings_service,
         missing_service,
+        backup_on_close=None,
     ):
         ctk.CTk.__init__(self)
+
+        # Callback opcional que se ejecuta antes de cerrar (ej: backup de la base)
+        self._backup_on_close = backup_on_close
 
         # Tema visual: claro (light) con color azul
         ctk.set_appearance_mode("light")
@@ -109,6 +114,12 @@ class App(ctk.CTk):
             pass
 
     def _on_close(self):
+        # Backup automatico: un fallo NUNCA debe impedir el cierre
+        if self._backup_on_close is not None:
+            try:
+                self._backup_on_close()
+            except Exception:
+                traceback.print_exc()
         try:
             if hasattr(self, '_icon_after_id') and self._icon_after_id:
                 self.after_cancel(self._icon_after_id)

@@ -43,3 +43,21 @@ class SettingsService:
         if margin <= 0:
             raise ValueError("El margen de ganancia debe ser mayor a cero")
         self._settings_repo.set("profit_margin", str(margin))
+
+    def get_backup_dir(self) -> str:
+        """Retorna la carpeta donde se guardan los backups automaticos."""
+        return self._settings_repo.get("backup_dir", "backups")
+
+    def set_backup_dir(self, path: str) -> None:
+        """Actualiza la carpeta de backups automaticos."""
+        self._settings_repo.set("backup_dir", path)
+
+    def get_backup_keep(self) -> int:
+        """Retorna cuantos backups se conservan (default 10)."""
+        return int(self._settings_repo.get("backup_keep", "10"))
+
+    def set_backup_keep(self, keep: int) -> None:
+        """Actualiza la cantidad de backups a conservar."""
+        if keep < 1:
+            raise ValueError("La cantidad de backups debe ser al menos 1")
+        self._settings_repo.set("backup_keep", str(keep))
