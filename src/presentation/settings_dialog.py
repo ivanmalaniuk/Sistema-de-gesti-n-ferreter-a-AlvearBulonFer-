@@ -28,7 +28,7 @@ class SettingsDialog(ctk.CTkToplevel):
         self._product_service = product_service
 
         self.title("Configuracion")
-        self.geometry("450x300")
+        self.geometry("450x400")
         self.resizable(False, False)
         self.transient(master)  # Dialogo modal sobre la ventana padre
         self.grab_set()  # Bloquea interaccion con otras ventanas
@@ -75,6 +75,36 @@ class SettingsDialog(ctk.CTkToplevel):
             justify="left",
         ).grid(row=2, column=0, columnspan=2, padx=5, pady=5, sticky="w")
 
+        # Carpeta de backups automaticos (relativa a la raiz del proyecto o absoluta)
+        ctk.CTkLabel(frame, text="Carpeta de Backups:").grid(
+            row=3,
+            column=0,
+            padx=5,
+            pady=8,
+            sticky="w",
+        )
+        self._backup_dir_entry = ctk.CTkEntry(frame, width=220)
+        self._backup_dir_entry.grid(row=3, column=1, padx=5, pady=8)
+
+        # Cantidad de backups a conservar
+        ctk.CTkLabel(frame, text="Backups a conservar:").grid(
+            row=4,
+            column=0,
+            padx=5,
+            pady=8,
+            sticky="w",
+        )
+        self._backup_keep_entry = ctk.CTkEntry(frame, width=150)
+        self._backup_keep_entry.grid(row=4, column=1, padx=5, pady=8)
+
+        ctk.CTkLabel(
+            frame,
+            text="Cada vez que cierre la app se guarda un backup\ny se eliminan los mas viejos.",
+            font=("Arial", 10),
+            text_color="gray",
+            justify="left",
+        ).grid(row=5, column=0, columnspan=2, padx=5, pady=5, sticky="w")
+
         # Botones
         btn_frame = ctk.CTkFrame(self, fg_color="transparent")
         btn_frame.pack(pady=15)
@@ -92,6 +122,8 @@ class SettingsDialog(ctk.CTkToplevel):
         """Carga los valores actuales en los campos del formulario."""
         self._usd_entry.insert(0, str(self._settings.get_usd_rate()))
         self._margin_entry.insert(0, str(self._settings.get_profit_margin()))
+        self._backup_dir_entry.insert(0, self._settings.get_backup_dir())
+        self._backup_keep_entry.insert(0, str(self._settings.get_backup_keep()))
 
     def _save(self):
         """Valida y guarda la configuracion. Opcionalmente recalcula precios."""
@@ -104,12 +136,28 @@ class SettingsDialog(ctk.CTkToplevel):
             )
             return
 
+        try:
+            keep = int(self._backup_keep_entry.get().strip())
+        except ValueError:
+            messagebox.showwarning(
+                "Error", "Los backups a conservar deben ser un numero entero",
+                parent=self,
+            )
+            return
+        if keep < 1:
+            messagebox.showwarning(
+                "Error", "Los backups a conservar deben ser al menos 1", parent=self
+            )
+            return
+
         # Detectar cambios
         try:
             old_rate = self._settings.get_usd_rate()
             old_margin = self._settings.get_profit_margin()
             self._settings.set_usd_rate(usd)
             self._settings.set_profit_margin(margin)
+            self._settings.set_backup_dir(self._backup_dir_entry.get().strip())
+            self._settings.set_backup_keep(keep)
         except ValueError as e:
             messagebox.showerror("Error", str(e), parent=self)
             return

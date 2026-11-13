@@ -22,7 +22,8 @@ import os
 # Asegurar que el directorio raiz esta en sys.path
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 
-from src.infrastructure.database import init_db
+from src.infrastructure.database import init_db, DB_PATH
+from src.infrastructure.backup import create_backup
 from src.infrastructure.product_repository import SQLiteProductRepository
 from src.infrastructure.sale_repository import SQLiteSaleRepository
 from src.infrastructure.expense_repository import SQLiteExpenseRepository
@@ -62,6 +63,15 @@ def main():
     list_service = ListService(product_repo, uploaded_list_repo)
     missing_service = MissingItemService(missing_repo)
 
+    # Backup automatico al cerrar: lee la configuracion y copia la base.
+    # Si falla, App._on_close lo registra pero igual cierra la aplicacion.
+    def _hacer_backup():
+        create_backup(
+            DB_PATH,
+            settings_service.get_backup_dir(),
+            settings_service.get_backup_keep(),
+        )
+
     # 4. Crear y lanzar la interfaz grafica (inyectando servicios)
     app = App(
         product_service=product_service,
@@ -71,6 +81,7 @@ def main():
         list_service=list_service,
         settings_service=settings_service,
         missing_service=missing_service,
+        backup_on_close=_hacer_backup,
     )
 
     # 5. Iniciar el bucle de eventos de CustomTkinter
