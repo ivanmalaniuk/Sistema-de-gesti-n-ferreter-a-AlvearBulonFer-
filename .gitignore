@@ -1,0 +1,49 @@
+# Entorno virtual
+.venv/
+venv/
+env/
+ENV/
+
+# Python
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+build/
+dist/
+*.egg-info/
+.eggs/
+
+# Tests y linters
+.pytest_cache/
+.ruff_cache/
+.mypy_cache/
+.coverage
+.coverage.*
+htmlcov/
+
+# Base de datos local (se regenera en el primer arranque)
+ferreteria.db
+ferreteria.db-shm
+ferreteria.db-wal
+*.db
+*.sqlite3
+
+# Listas de precios de proveedores (datos comerciales)
+src/listas_originales/
+src/listas_subidas/
+
+# Boletas y reportes generados (datos de clientes)
+src/Reportes/
+
+# Secretos
+.env
+.env.*
+*.pem
+*.key
+
+# Sistema operativo y editores
+.DS_Store
+Thumbs.db
+.idea/
+.vscode/
