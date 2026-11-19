@@ -43,8 +43,13 @@ from src.application.missing_item_service import MissingItemService
 from src.presentation.app import App
 
 
-def main():
-    """Punto de entrada: inicializa DB, crea dependencias y lanza la GUI."""
+def construir_app():
+    """
+    Ensambla el grafo de dependencias y crea la ventana (Composition Root).
+
+    Devuelve la App ya construida pero SIN iniciar mainloop, para que
+    main() y herramientas de medicion compartan el mismo ensamblado.
+    """
 
     # 1. Asegurar que la base de datos y tablas existen
     init_db()
@@ -87,12 +92,20 @@ def main():
         backup_on_close=_hacer_backup,
     )
 
+    return app
+
+
+def main():
+    """Punto de entrada: ensambla la app, avisa del entorno y lanza la GUI."""
+
+    app = construir_app()
+
     # Aviso si Python/Tk no son las versiones recomendadas (no bloquea).
     aviso = get_environment_warning(sys.version_info, tkinter.TkVersion)
     if aviso:
         messagebox.showwarning("Entorno", aviso, parent=app)
 
-    # 5. Iniciar el bucle de eventos de CustomTkinter
+    # Iniciar el bucle de eventos de CustomTkinter
     app.mainloop()
 
 
