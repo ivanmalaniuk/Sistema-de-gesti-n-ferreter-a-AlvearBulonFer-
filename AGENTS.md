@@ -107,7 +107,32 @@ unit_price        = selling_price / unit_quantity
 
 1. ~~Backup automático al cerrar la app (API de backup de sqlite3, copia a otra carpeta/USB, conservar las últimas N).~~ Hecho (issue #2).
 2. ~~Fijar versiones estables (Python 3.12/3.13, Tk 8.6 si aplica) y documentarlas en `requirements.txt`.~~ Hecho (issue #3).
-3. Medir tiempo de arranque y de apertura de cada pestaña (idealmente en la PC del local) y registrar resultados aquí.
+3. ~~Medir tiempo de arranque y de apertura de cada pestaña y registrar resultados aquí.~~ Hecho (issue #4): `python scripts/medir_rendimiento.py [--salida archivo.md]`.
+
+   **Resultados — 2026-11-19, máquina de desarrollo** (Fedora, Python 3.14.10, Tk 9.0, CustomTkinter 6.0.0, 30.303 productos, carga 3,05, 717 MB de memoria disponible):
+
+   | Fase de arranque | ms |
+   |---|---:|
+   | Importación (customtkinter, PIL, src) | 184 |
+   | Construcción (DB + servicios + ventana) | 103.809 |
+   | Primer dibujo en pantalla | 93.414 |
+   | **Total arranque** | **197.407** |
+
+   | Pestaña | Tipo | 1ª apertura (ms) | Repetida mín (ms) |
+   |---|---|---:|---:|
+   | Registrar Venta | inicial | 0,2 | 0,1 |
+   | Productos | inicial | 799 | 119 |
+   | Reportes | inicial | 115 | 220 |
+   | Historial Ventas | inicial | 394 | 113 |
+   | Registrar Gasto | demanda | 313 | 294 |
+   | Cargar Lista | demanda | 1.456 | 117 |
+   | Crear Boleta | demanda | 602 | 123 |
+   | Comparar Mercados | demanda | 795 | 117 |
+   | Faltantes | demanda | 515 | 130 |
+
+   - Tres corridas el mismo día dieron 18,2 s / 136,8 s / 197,4 s de arranque: la máquina estaba con poca memoria libre (995 → 717 MB, ~3 GB de swap). Los números son **indicativos**, no una línea de base limpia.
+   - Perfil (cProfile, misma máquina): ~92 % del tiempo de construcción se concentró en `SalesHistoryView` → `CTkScrollableFrame`/scrollbar. Apoya el ítem 4.
+   - **Pendiente**: repetir la medición en la PC del local (Windows 11) con la app cerrada y la máquina en reposo.
 4. Reemplazar listas de widgets por `ttk.Treeview` (productos, ítems de venta, historial); búsqueda con SQL + `LIMIT` y *debounce*; borrar `wheel_scroll.py`.
 5. Índices en `products.name`, `sales.created_at`, `sale_items.sale_id`, `expenses.date`; `PRAGMA synchronous=NORMAL` con WAL; ventas en una transacción.
 6. Importación de listas: imports perezosos (`openpyxl`/`xlrd` solo al abrir la pestaña), procesar en hilo con progreso.
@@ -147,3 +172,4 @@ Límites:
 - 2026-11-13 — Creado AGENTS.md; definido backlog de rendimiento y confiabilidad.
 - 2026-11-13 — Backup automático al cerrar la app (issue #2): `backup.py`, settings `backup_dir`/`backup_keep`, 39 tests.
 - 2026-11-19 — Versiones fijadas en `requirements.txt` y aviso de entorno al arrancar (issue #3): Python 3.12/3.13 + Tk 8.6, 44 tests.
+- 2026-11-19 — Script de medición de rendimiento (issue #4): `scripts/medir_rendimiento.py`, resultados en §8.3, 47 tests.
