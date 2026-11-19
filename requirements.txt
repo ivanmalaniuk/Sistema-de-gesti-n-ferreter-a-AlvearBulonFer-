@@ -1,6 +1,10 @@
-customtkinter>=5.2.0
-openpyxl>=3.1.0
-xlrd>=2.0.0
-tkinterdnd2>=0.6.0
-pytest>=8.0.0
-fpdf2>=2.8.0
+# Entorno recomendado (Python y Tk NO se instalan con pip; se documenta aca):
+#   Python 3.12 o 3.13
+#   Tk 8.6 (incluido en esas versiones de Python)
+# Evitar Python 3.14 / Tk 9.0: incompatibilidades conocidas con CustomTkinter.
+customtkinter==5.2.2
+openpyxl==3.1.5
+xlrd==2.0.2
+tkinterdnd2==0.6.2
+pytest==8.3.5
+fpdf2==2.8.7
