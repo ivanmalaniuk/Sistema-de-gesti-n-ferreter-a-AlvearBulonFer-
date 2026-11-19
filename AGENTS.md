@@ -2,7 +2,7 @@
 
 > Leer este archivo completo al iniciar la sesión. Es la fuente de verdad del proyecto.
 > `CONTEXT.md` es documentación histórica para humanos: NO leerlo salvo que se pida. Si difieren, manda este archivo.
-> Última actualización: 2026-11-13
+> Última actualización: 2026-11-19
 
 ## 1. Qué es
 
@@ -21,6 +21,7 @@ Repo: https://github.com/ivanmalaniuk/Sistema-de-gesti-n-ferreter-a-AlvearBulonF
 
 - **PC del local**: Windows 11, hardware lento (poca potencia). Probar ahí, no solo en el equipo de desarrollo.
 - **Desarrollo**: Fedora Linux, Python 3.14.x, Tk 9.0, CustomTkinter 6.0.0 (versiones muy nuevas → origen de varios bugs, ver §7).
+- **Entorno recomendado**: Python 3.12/3.13 + Tk 8.6; la app avisa al arrancar si no coincide (issue #3).
 - **Usuario final**: el encargado del negocio, un solo usuario, un solo equipo, uso diario (ventas al mostrador, gastos, listas de precios del proveedor, reportes mensuales).
 - **Empaquetado a Windows** (cuando toque): PyInstaller en modo `--onedir`, NO `--onefile` (onefile se descomprime en cada arranque y es lento en PC vieja).
 - Verificar versión de Tk con `python -c "import tkinter; print(tkinter.TkVersion)"`.
@@ -100,11 +101,12 @@ unit_price        = selling_price / unit_quantity
 | Crash/lentitud en vista previa de listas | Cientos de `CTkLabel` | Resuelto: un solo label con resumen de texto |
 | Lentitud general en PC del local | CustomTkinter dibuja cada widget en Canvas; tablas con widgets por fila; versiones nuevas de Python/Tk | Pendiente: Treeview, fijar versiones estables, medir (§8) |
 | Sin respaldo de datos | No implementado | Resuelto (2026-11-13): backup automático al cerrar, API de sqlite3, carpeta/N configurables (issue #2) |
+| Aviso de entorno | Sin documentar ni avisar el desajuste Python/Tk | Resuelto (2026-11-19): `environment.py` avisa al arrancar si Python/Tk no son 3.12/3.13 + 8.6 (issue #3) |
 
 ## 8. Backlog priorizado (crear un issue por ítem, en este orden)
 
 1. ~~Backup automático al cerrar la app (API de backup de sqlite3, copia a otra carpeta/USB, conservar las últimas N).~~ Hecho (issue #2).
-2. Fijar versiones estables (Python 3.12/3.13, Tk 8.6 si aplica) y documentarlas en `requirements.txt`.
+2. ~~Fijar versiones estables (Python 3.12/3.13, Tk 8.6 si aplica) y documentarlas en `requirements.txt`.~~ Hecho (issue #3).
 3. Medir tiempo de arranque y de apertura de cada pestaña (idealmente en la PC del local) y registrar resultados aquí.
 4. Reemplazar listas de widgets por `ttk.Treeview` (productos, ítems de venta, historial); búsqueda con SQL + `LIMIT` y *debounce*; borrar `wheel_scroll.py`.
 5. Índices en `products.name`, `sales.created_at`, `sale_items.sale_id`, `expenses.date`; `PRAGMA synchronous=NORMAL` con WAL; ventas en una transacción.
@@ -144,3 +146,4 @@ Límites:
 - 2026-08-01 — Fix: rueda del ratón vía `wheel_scroll.py`.
 - 2026-11-13 — Creado AGENTS.md; definido backlog de rendimiento y confiabilidad.
 - 2026-11-13 — Backup automático al cerrar la app (issue #2): `backup.py`, settings `backup_dir`/`backup_keep`, 39 tests.
+- 2026-11-19 — Versiones fijadas en `requirements.txt` y aviso de entorno al arrancar (issue #3): Python 3.12/3.13 + Tk 8.6, 44 tests.

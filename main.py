@@ -18,12 +18,15 @@ de repositorios o servicios directamente.
 
 import sys
 import os
+import tkinter
+from tkinter import messagebox
 
 # Asegurar que el directorio raiz esta en sys.path
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 
 from src.infrastructure.database import init_db, DB_PATH
 from src.infrastructure.backup import create_backup
+from src.infrastructure.environment import get_environment_warning
 from src.infrastructure.product_repository import SQLiteProductRepository
 from src.infrastructure.sale_repository import SQLiteSaleRepository
 from src.infrastructure.expense_repository import SQLiteExpenseRepository
@@ -83,6 +86,11 @@ def main():
         missing_service=missing_service,
         backup_on_close=_hacer_backup,
     )
+
+    # Aviso si Python/Tk no son las versiones recomendadas (no bloquea).
+    aviso = get_environment_warning(sys.version_info, tkinter.TkVersion)
+    if aviso:
+        messagebox.showwarning("Entorno", aviso, parent=app)
 
     # 5. Iniciar el bucle de eventos de CustomTkinter
     app.mainloop()
