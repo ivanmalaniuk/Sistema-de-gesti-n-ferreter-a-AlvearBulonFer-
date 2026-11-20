@@ -1,5 +1,6 @@
 import os
 import shutil
+import threading
 import customtkinter as ctk
 from tkinter import messagebox, filedialog
 from datetime import date
@@ -146,6 +147,14 @@ class LoadListView(ctk.CTkFrame):
         self._wb = None
         self._sheet_names = []
         self._ignore_trace = False
+        self._busy = False
+        self._progress_done = 0
+        self._progress_total = 0
+        self._progress_result = None
+        self._progress_error = None
+        self._progress_finished = False
+        self._progress_busy_text = ""
+        self._pending_import = None
         self._build_ui()
         self.bind("<Map>", lambda e: (self._load_suppliers(), self._refresh_uploaded_lists()))
 
@@ -300,6 +309,8 @@ class LoadListView(ctk.CTkFrame):
             height=40,
             font=("Arial", 13, "bold"),
         )
+        self._progress_label = ctk.CTkLabel(btn_frame, text="", font=("Arial", 11))
+        self._progress_bar = ctk.CTkProgressBar(btn_frame, width=250)
         self._import_btn.pack(pady=5)
 
         # ===== Scrollable section: uploaded lists only =====
@@ -489,6 +500,8 @@ class LoadListView(ctk.CTkFrame):
                 self._apply_mapping()
 
     def _on_drop(self, event):
+        if self._busy:
+            return
         raw = event.data
         path = raw.strip().strip("{}").strip()
         if not path:
@@ -507,6 +520,8 @@ class LoadListView(ctk.CTkFrame):
         pass
 
     def _select_file(self):
+        if self._busy:
+            return
         initial = _LISTAS_ORIGINALES if os.path.isdir(_LISTAS_ORIGINALES) else os.getcwd()
         path = filedialog.askopenfilename(
             title="Seleccionar archivo XLSX",
@@ -544,6 +559,8 @@ class LoadListView(ctk.CTkFrame):
         self._drop_frame.configure(fg_color="#f0f4f8", border_color="#90a4ae")
 
     def _cancel_selection(self):
+        if self._busy:
+            return
         self._reset_drop_zone()
         self._preview_rows = []
         self._raw_rows = []
@@ -580,20 +597,74 @@ class LoadListView(ctk.CTkFrame):
         else:
             raise ValueError("Formato no soportado. Use .xlsx o .xls")
 
-    def _after_file_select(self):
-        try:
-            rows = self._read_file_rows()
-        except ImportError as e:
-            lib = "openpyxl" if self._file_path.lower().endswith(".xlsx") else "xlrd"
-            messagebox.showerror("Error", f"Debe instalar {lib}: pip install {lib}")
-            return
-        except ValueError as e:
-            messagebox.showerror("Error", str(e))
-            return
-        except Exception as e:
-            messagebox.showerror("Error", f"No se pudo leer el archivo:\n{str(e)}")
-            return
+    def _report_progress(self, done, total):
+        """Guarda el avance informado por el servicio para que lo lea el hilo principal."""
+        self._progress_done = done
+        self._progress_total = total
 
+    def _run_in_thread(self, work, on_success, on_error, busy_text):
+        """Ejecuta 'work' en un hilo daemon y muestra el progreso en la UI.
+
+        Patron: el hilo de trabajo solo corre codigo Python puro y deja el
+        resultado en atributos; el hilo principal consulta con self.after y es
+        el unico que toca widgets de Tk.
+        """
+        if self._busy:
+            return
+        self._busy = True
+        self._progress_done = 0
+        self._progress_total = 0
+        self._progress_result = None
+        self._progress_error = None
+        self._progress_finished = False
+        self._progress_busy_text = busy_text
+        self._progress_label.configure(text=busy_text)
+        self._progress_bar.set(0)
+        self._progress_label.pack(pady=(5, 0), before=self._import_btn)
+        self._progress_bar.pack(pady=(0, 5), before=self._import_btn)
+        self._import_btn.configure(state="disabled")
+        self._cancel_btn.configure(state="disabled")
+        threading.Thread(target=self._thread_worker, args=(work,), daemon=True).start()
+        self.after(100, lambda: self._poll_thread(on_success, on_error))
+
+    def _thread_worker(self, work):
+        """Cuerpo del hilo de trabajo: guarda resultado o error y marca fin."""
+        try:
+            self._progress_result = work()
+        except Exception as e:
+            self._progress_error = e
+        self._progress_finished = True
+
+    def _poll_thread(self, on_success, on_error):
+        """Consulta desde el hilo principal si el trabajo termino y actualiza la barra."""
+        if self._progress_total > 0:
+            self._progress_bar.set(self._progress_done / self._progress_total)
+            self._progress_label.configure(
+                text=f"{self._progress_busy_text}: {self._progress_done} / {self._progress_total}"
+            )
+        if not self._progress_finished:
+            self.after(100, lambda: self._poll_thread(on_success, on_error))
+            return
+        self._busy = False
+        self._progress_label.pack_forget()
+        self._progress_bar.pack_forget()
+        self._cancel_btn.configure(state="normal")
+        self._import_btn.configure(state="normal" if self._preview_rows else "disabled")
+        if self._progress_error is not None:
+            on_error(self._progress_error)
+        else:
+            on_success(self._progress_result)
+
+    def _after_file_select(self):
+        self._run_in_thread(
+            self._read_file_rows,
+            self._finish_file_read,
+            self._file_read_error,
+            "Leyendo archivo",
+        )
+
+    def _finish_file_read(self, rows):
+        """Procesa en el hilo principal las filas leidas del archivo."""
         if not rows:
             messagebox.showwarning("Advertencia", "El archivo esta vacio")
             return
@@ -617,15 +688,33 @@ class LoadListView(ctk.CTkFrame):
         self._show_mapping()
         self._update_raw_preview()
 
+    def _file_read_error(self, e):
+        """Traduce los errores de lectura a mensajes para el usuario."""
+        if isinstance(e, ImportError):
+            lib = "openpyxl" if self._file_path.lower().endswith(".xlsx") else "xlrd"
+            messagebox.showerror("Error", f"Debe instalar {lib}: pip install {lib}")
+            return
+        if isinstance(e, ValueError):
+            messagebox.showerror("Error", str(e))
+            return
+        messagebox.showerror("Error", f"No se pudo leer el archivo:\n{str(e)}")
+
     def _on_sheet_change(self, *args):
+        if self._busy:
+            return
+        self._close_wb()
         sheet = self._sheet_var.get()
         if not sheet or not self._file_path:
             return
-        self._close_wb()
-        try:
-            rows = self._read_file_rows(sheet_name=sheet)
-        except Exception:
-            return
+        self._run_in_thread(
+            lambda: self._read_file_rows(sheet_name=sheet),
+            self._finish_sheet_read,
+            lambda e: None,
+            "Leyendo archivo",
+        )
+
+    def _finish_sheet_read(self, rows):
+        """Actualiza la previsualizacion con las filas de la hoja elegida."""
         if not rows:
             return
         self._raw_rows = rows
@@ -928,6 +1017,8 @@ class LoadListView(ctk.CTkFrame):
         return selected.strip()
 
     def _import_list(self):
+        if self._busy:
+            return
         supplier = self._get_supplier()
         date_str = self._date_entry.get().strip()
 
@@ -950,56 +1041,64 @@ class LoadListView(ctk.CTkFrame):
         rate = self._settings.get_usd_rate()
         margin = self._get_margin_value()
 
-        try:
-            fname = os.path.basename(self._file_path)
-            result = self._list_service.import_from_xls_rows(
+        fname = os.path.basename(self._file_path)
+        self._pending_import = (supplier, list_date, margin)
+        self._run_in_thread(
+            lambda: self._list_service.import_from_xls_rows(
                 self._preview_rows,
                 supplier,
                 list_date,
                 rate,
                 margin,
                 filename=fname,
-            )
-            msg = (
-                f"Proveedor: {supplier}\n"
-                f"Fecha lista: {list_date}\n"
-                f"Margen: +{margin - 100}%\n\n"
-                f" Nuevos: {result['imported']}\n"
-                f" Actualizados: {result['updated']}\n"
-                f" Saltados (ya hay precio mas reciente): {result['skipped']}\n"
-                f" Total procesados: {sum(result.values())}"
-            )
-            messagebox.showinfo("Importacion completada", msg)
+                progress=self._report_progress,
+            ),
+            self._finish_import,
+            lambda e: messagebox.showerror("Error", str(e)),
+            "Importando productos",
+        )
 
-            self._close_wb()
-            os.makedirs(_LISTAS_SUBIDAS, exist_ok=True)
-            fname = os.path.basename(self._file_path)
-            dest = os.path.join(_LISTAS_SUBIDAS, fname)
-            try:
-                shutil.move(self._file_path, dest)
-            except Exception:
-                pass
-            self._file_path = ""
+    def _finish_import(self, result):
+        """Muestra el resultado de la importacion y resetea el formulario."""
+        supplier, list_date, margin = self._pending_import
+        msg = (
+            f"Proveedor: {supplier}\n"
+            f"Fecha lista: {list_date}\n"
+            f"Margen: +{margin - 100}%\n\n"
+            f" Nuevos: {result['imported']}\n"
+            f" Actualizados: {result['updated']}\n"
+            f" Saltados (ya hay precio mas reciente): {result['skipped']}\n"
+            f" Total procesados: {sum(result.values())}"
+        )
+        messagebox.showinfo("Importacion completada", msg)
 
-            self._preview_rows = []
-            self._import_btn.configure(state="disabled")
-            self._summary_label.configure(
-                text="Seleccione un archivo Excel para comenzar"
-            )
-            self._supplier_var.set("")
-            self._supplier_other_entry.grid_remove()
-            self._supplier_other_entry.delete(0, "end")
-            self._load_suppliers()
-            self._refresh_uploaded_lists()
-            self._date_entry.delete(0, "end")
-            self._date_entry.insert(0, date.today().isoformat())
-            default_margin = self._settings.get_profit_margin() - 100
-            self._margin_entry.delete(0, "end")
-            self._margin_entry.insert(0, str(default_margin))
-            self._hide_mapping()
-            self._reset_drop_zone()
-        except Exception as e:
-            messagebox.showerror("Error", str(e))
+        self._close_wb()
+        os.makedirs(_LISTAS_SUBIDAS, exist_ok=True)
+        fname = os.path.basename(self._file_path)
+        dest = os.path.join(_LISTAS_SUBIDAS, fname)
+        try:
+            shutil.move(self._file_path, dest)
+        except Exception:
+            pass
+        self._file_path = ""
+
+        self._preview_rows = []
+        self._import_btn.configure(state="disabled")
+        self._summary_label.configure(
+            text="Seleccione un archivo Excel para comenzar"
+        )
+        self._supplier_var.set("")
+        self._supplier_other_entry.grid_remove()
+        self._supplier_other_entry.delete(0, "end")
+        self._load_suppliers()
+        self._refresh_uploaded_lists()
+        self._date_entry.delete(0, "end")
+        self._date_entry.insert(0, date.today().isoformat())
+        default_margin = self._settings.get_profit_margin() - 100
+        self._margin_entry.delete(0, "end")
+        self._margin_entry.insert(0, str(default_margin))
+        self._hide_mapping()
+        self._reset_drop_zone()
 
     def _refresh_uploaded_lists(self):
         for w in self._uploaded_scroll.winfo_children():
