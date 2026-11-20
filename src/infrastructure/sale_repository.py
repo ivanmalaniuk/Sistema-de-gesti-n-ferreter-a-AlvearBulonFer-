@@ -18,31 +18,37 @@ class SQLiteSaleRepository(ISaleRepository):
         cursor = conn.cursor()
         now = datetime.now().isoformat()
 
-        cursor.execute(
-            "INSERT INTO sales (total_amount, created_at, customer) VALUES (?, ?, ?)",
-            (float(sale.total_amount), now, sale.customer),
-        )
-        sale_id = cursor.lastrowid
-
-        for item in sale.items:
+        try:
             cursor.execute(
-                """
-                INSERT INTO sale_items
-                    (sale_id, product_id, quantity, unit_price, subtotal, cost_price)
-                VALUES (?, ?, ?, ?, ?, ?)
-                """,
-                (
-                    sale_id,
-                    item.product.id,
-                    float(item.quantity),
-                    float(item.unit_price),
-                    float(item.subtotal),
-                    float(item.cost_price),
-                ),
+                "INSERT INTO sales (total_amount, created_at, customer) VALUES (?, ?, ?)",
+                (float(sale.total_amount), now, sale.customer),
             )
+            sale_id = cursor.lastrowid
 
-        conn.commit()
-        conn.close()
+            for item in sale.items:
+                cursor.execute(
+                    """
+                    INSERT INTO sale_items
+                        (sale_id, product_id, quantity, unit_price, subtotal, cost_price)
+                    VALUES (?, ?, ?, ?, ?, ?)
+                    """,
+                    (
+                        sale_id,
+                        item.product.id,
+                        float(item.quantity),
+                        float(item.unit_price),
+                        float(item.subtotal),
+                        float(item.cost_price),
+                    ),
+                )
+
+            conn.commit()
+        except Exception:
+            conn.rollback()
+            raise
+        finally:
+            conn.close()
+
         sale.id = sale_id
         sale.created_at = datetime.fromisoformat(now)
         return sale
