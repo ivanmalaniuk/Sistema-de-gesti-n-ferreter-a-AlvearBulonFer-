@@ -105,3 +105,13 @@ class TestCalculateTotal:
         total = sale_service.calculate_total([(1, Decimal("2")), (2, Decimal("4"))])
 
         assert total == Decimal("640")
+
+
+class TestSearchSales:
+    def test_search_sales_delegates_to_repo(self, sale_service, sale_repo):
+        sale_repo.search.return_value = []
+
+        result = sale_service.search_sales("martillo", limit=10)
+
+        sale_repo.search.assert_called_once_with("martillo", 10)
+        assert result == []

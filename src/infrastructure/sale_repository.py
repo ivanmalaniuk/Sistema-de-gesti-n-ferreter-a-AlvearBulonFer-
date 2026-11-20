@@ -143,6 +143,52 @@ class SQLiteSaleRepository(ISaleRepository):
             ))
         return result
 
+    def search(self, query: str, limit: int = 0) -> List[Sale]:
+        """Busca ventas por cliente, ID o fecha. Reutiliza el mapeo de items."""
+        conn = get_connection()
+        cursor = conn.cursor()
+
+        q = (query or "").strip()
+        params: List = []
+        if q:
+            escaped = q.replace("\\", "\\\\").replace("%", "\\%").replace("_", "\\_")
+            like = f"%{escaped}%"
+            sql = (
+                "SELECT * FROM sales WHERE customer LIKE ? ESCAPE '\\' "
+                "OR CAST(id AS TEXT) LIKE ? ESCAPE '\\' "
+                "OR created_at LIKE ? ESCAPE '\\' "
+                "ORDER BY created_at DESC"
+            )
+            params.extend([like, like, like])
+        else:
+            sql = "SELECT * FROM sales ORDER BY created_at DESC"
+
+        if limit and limit > 0:
+            sql += " LIMIT ?"
+            params.append(limit)
+
+        cursor.execute(sql, params)
+        sale_rows = cursor.fetchall()
+        sale_ids = [r["id"] for r in sale_rows]
+        item_rows = self._fetch_items(cursor, sale_ids)
+        conn.close()
+
+        items_by_sale: dict = {}
+        for row in item_rows:
+            items_by_sale.setdefault(row["sale_id"], []).append(row)
+
+        result = []
+        for srow in sale_rows:
+            sid = srow["id"]
+            items = self._build_items(items_by_sale.get(sid, []), sid)
+            result.append(Sale(
+                id=sid,
+                items=items,
+                customer=srow["customer"] if srow["customer"] else '',
+                created_at=datetime.fromisoformat(srow["created_at"]),
+            ))
+        return result
+
     def get_by_date_range(self, start: datetime, end: datetime) -> List[Sale]:
         conn = get_connection()
         cursor = conn.cursor()
