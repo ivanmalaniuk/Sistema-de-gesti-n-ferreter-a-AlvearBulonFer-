@@ -19,7 +19,7 @@ La logica de calculo aplica:
 
 from datetime import date, datetime
 from decimal import Decimal, ROUND_HALF_UP
-from typing import List, Dict
+from typing import Callable, Dict, List, Optional
 
 from src.domain.entities import Product, UploadedList
 from src.domain.interfaces import IProductRepository, IUploadedListRepository
@@ -42,6 +42,7 @@ class ListService:
         usd_rate: Decimal,
         profit_margin: Decimal,
         filename: str = "",
+        progress: Optional[Callable[[int, int], None]] = None,
     ) -> Dict[str, int]:
         """
         Procesa las filas creando o actualizando productos.
@@ -56,14 +57,21 @@ class ListService:
             usd_rate: Tipo de cambio USD.
             profit_margin: Margen de ganancia en % (ej: 160).
             filename: Nombre del archivo importado (opcional, para trackear listas subidas).
+            progress: Callback opcional que recibe (fila_actual, total) una vez por
+                cada fila de entrada, al comienzo de su procesamiento. Incluye las
+                filas que terminan siendo salteadas.
 
         Returns:
             Dict con claves: imported, updated, skipped.
         """
         result = {"imported": 0, "updated": 0, "skipped": 0}
         margin_multiplier = profit_margin / Decimal("100")
+        total = len(rows)
 
-        for row in rows:
+        for i, row in enumerate(rows, 1):
+            if progress:
+                progress(i, total)
+
             name = row.get("name", "").strip()
             category = row.get("category", "").strip()
             code = str(row.get("code", "")).strip() if row.get("code") else ""
