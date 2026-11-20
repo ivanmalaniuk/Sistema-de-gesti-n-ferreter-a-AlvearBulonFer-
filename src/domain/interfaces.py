@@ -95,6 +95,12 @@ class ISaleRepository(ABC):
         ...
 
     @abstractmethod
+    def search(self, query: str, limit: int = 0) -> List[Sale]:
+        """Busca ventas por cliente, ID o fecha (orden descendente por fecha).
+        Si limit > 0, retorna hasta ese maximo de resultados."""
+        ...
+
+    @abstractmethod
     def get_by_date_range(self, start: datetime, end: datetime) -> List[Sale]:
         """Ventas dentro de un rango de fechas [start, end)."""
         ...
