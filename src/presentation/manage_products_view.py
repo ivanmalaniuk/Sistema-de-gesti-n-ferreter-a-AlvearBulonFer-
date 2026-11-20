@@ -12,16 +12,27 @@ usando el margen de ganancia y tipo de cambio USD actuales.
 """
 
 import customtkinter as ctk
-from tkinter import messagebox
+from tkinter import messagebox, ttk
 from datetime import date
 from decimal import Decimal, InvalidOperation
 
 from src.application.product_service import ProductService
-from src.presentation.wheel_scroll import register_scrollable
 
 
 MAX_DISPLAY_ALL = 50
 MAX_DISPLAY_SEARCH = 50
+_SEARCH_DEBOUNCE_MS = 250
+
+# Columnas de la tabla: (id interno, titulo, ancho)
+_PRODUCT_COLUMNS = (
+    ("name", "Nombre", 260),
+    ("category", "Categoria", 140),
+    ("supplier", "Proveedor", 140),
+    ("sp", "P. Proveedor", 110),
+    ("sv", "P. Venta", 110),
+    ("uq", "Ud. x Paq.", 90),
+    ("up", "P. Unitario", 110),
+)
 
 
 class ManageProductsView(ctk.CTkFrame):
@@ -31,6 +42,8 @@ class ManageProductsView(ctk.CTkFrame):
         super().__init__(master)
         self._product_service = product_service
         self._selected_id = None  # ID del producto seleccionado en la tabla
+        self._row_products = {}  # iid de Treeview -> Product
+        self._search_after_id = None
         self._build_ui()
         self.bind("<Map>", lambda e: self._on_tab_shown())
         self._load_suppliers()
@@ -50,6 +63,7 @@ class ManageProductsView(ctk.CTkFrame):
         ctk.CTkLabel(toolbar, text="Buscar:").pack(side="left", padx=5)
         self._search_entry = ctk.CTkEntry(toolbar, width=300)
         self._search_entry.pack(side="left", padx=5)
+        self._search_entry.bind("<KeyRelease>", self._schedule_refresh)
         self._search_entry.bind("<Return>", self._on_search_key)
 
         ctk.CTkLabel(toolbar, text="Proveedor:").pack(side="left", padx=(15, 2))
@@ -80,36 +94,33 @@ class ManageProductsView(ctk.CTkFrame):
         table_frame = ctk.CTkFrame(self)
         table_frame.pack(fill="both", expand=True, padx=20, pady=5)
 
-        headers = [
-            "Nombre",
-            "Categoria",
-            "Proveedor",
-            "P. Proveedor",
-            "P. Venta",
-            "Ud. x Paq.",
-            "P. Unitario",
-        ]
-        for col, h in enumerate(headers):
-            ctk.CTkLabel(table_frame, text=h, font=("Arial", 11, "bold")).grid(
-                row=0,
-                column=col,
-                padx=3,
-                pady=2,
-                sticky="w",
-            )
-            table_frame.grid_columnconfigure(col, weight=1)
-
-        self._scroll = ctk.CTkScrollableFrame(table_frame)
-        self._scroll.grid(
-            row=1, column=0, columnspan=len(headers), sticky="nsew", pady=5
+        column_ids = [c[0] for c in _PRODUCT_COLUMNS]
+        self._tree = ttk.Treeview(
+            table_frame,
+            columns=column_ids,
+            show="headings",
+            selectmode="browse",
         )
-        register_scrollable(self._scroll)
-        table_frame.grid_rowconfigure(1, weight=1)
+        for col_id, title, width in _PRODUCT_COLUMNS:
+            self._tree.heading(col_id, text=title)
+            self._tree.column(col_id, width=width, anchor="w", stretch=True)
+
+        tree_scroll = ttk.Scrollbar(
+            table_frame, orient="vertical", command=self._tree.yview
+        )
+        self._tree.configure(yscrollcommand=tree_scroll.set)
+        self._tree.pack(side="left", fill="both", expand=True)
+        tree_scroll.pack(side="right", fill="y")
+        self._tree.bind("<<TreeviewSelect>>", self._on_tree_select)
+
+        self._notes_label = ctk.CTkLabel(
+            self, text="", font=("Arial", 10, "italic"), text_color="gray"
+        )
+        self._notes_label.pack(fill="x", padx=20)
 
         # === Formulario de producto (edicion/creacion) ===
-        form = ctk.CTkScrollableFrame(self)
+        form = ctk.CTkFrame(self)
         form.pack(fill="x", padx=20, pady=5)
-        register_scrollable(form)
         form.grid_columnconfigure(1, weight=1)
         form.grid_columnconfigure(3, weight=1)
 
@@ -293,14 +304,28 @@ class ManageProductsView(ctk.CTkFrame):
         except Exception as e:
             messagebox.showerror("Error", str(e))
 
+    def _schedule_refresh(self, event=None):
+        """Programa un refresco con debounce mientras el usuario escribe."""
+        if event is not None and event.keysym == "Return":
+            return
+        if self._search_after_id is not None:
+            self.after_cancel(self._search_after_id)
+        self._search_after_id = self.after(
+            _SEARCH_DEBOUNCE_MS, self._run_scheduled_refresh
+        )
+
+    def _run_scheduled_refresh(self):
+        self._search_after_id = None
+        self._refresh_table()
+
     def _on_search_key(self, event=None):
+        if self._search_after_id is not None:
+            self.after_cancel(self._search_after_id)
+            self._search_after_id = None
         self._refresh_table()
 
     def _refresh_table(self):
         """Actualiza la tabla con los productos (filtrados por busqueda y proveedor)."""
-        for w in self._scroll.winfo_children():
-            w.destroy()
-
         query = self._search_entry.get().strip()
         supplier = self._supplier_var.get()
         supplier_filter = '' if supplier == 'Todos' else supplier
@@ -311,17 +336,18 @@ class ManageProductsView(ctk.CTkFrame):
         total = len(products)
         display = products[:fetch_limit]
 
-        for product in display:
-            row = ctk.CTkFrame(self._scroll)
-            row.pack(fill="x", pady=1)
-            row.bind("<Button-1>", lambda e, p=product: self._select_product(p))
+        for iid in self._tree.get_children():
+            self._tree.delete(iid)
+        self._row_products.clear()
 
+        target_iid = None
+        for product in display:
             up = (
                 product.selling_price
                 if product.unit_quantity <= 1
                 else product.unit_price
             )
-            vals = [
+            vals = (
                 product.name,
                 product.category,
                 product.supplier,
@@ -329,26 +355,35 @@ class ManageProductsView(ctk.CTkFrame):
                 f"${product.selling_price:,.2f}",
                 str(product.unit_quantity) if product.unit_quantity > 1 else "-",
                 f"${up:,.2f}",
-            ]
-            for v in vals:
-                lbl = ctk.CTkLabel(row, text=str(v), anchor="w")
-                lbl.pack(side="left", padx=3, fill="x", expand=True)
-                lbl.bind("<Button-1>", lambda e, p=product: self._select_product(p))
+            )
+            iid = self._tree.insert("", "end", values=vals)
+            self._row_products[iid] = product
+            if product.id == self._selected_id:
+                target_iid = iid
+
+        if target_iid is not None:
+            self._tree.selection_set(target_iid)
+            self._tree.see(target_iid)
 
         if total > fetch_limit:
-            ctk.CTkLabel(
-                self._scroll,
-                text=f"... y {total - fetch_limit} productos mas. Use la busqueda para filtrar.",
-                font=("Arial", 10, "italic"),
-                text_color="gray",
-            ).pack(pady=5)
+            self._notes_label.configure(
+                text=f"... y {total - fetch_limit} productos mas. Use la busqueda para filtrar."
+            )
         elif not is_filtered and total == 0:
-            ctk.CTkLabel(
-                self._scroll,
-                text="No hay productos. Use 'Cargar Lista' para importar.",
-                font=("Arial", 10, "italic"),
-                text_color="gray",
-            ).pack(pady=5)
+            self._notes_label.configure(
+                text="No hay productos. Use 'Cargar Lista' para importar."
+            )
+        else:
+            self._notes_label.configure(text="")
+
+    def _on_tree_select(self, event=None):
+        """Carga en el formulario el producto de la fila seleccionada."""
+        selection = self._tree.selection()
+        if not selection:
+            return
+        product = self._row_products.get(selection[0])
+        if product is not None:
+            self._select_product(product)
 
     def _select_product(self, product):
         """Selecciona un producto de la tabla y carga sus datos en el formulario."""

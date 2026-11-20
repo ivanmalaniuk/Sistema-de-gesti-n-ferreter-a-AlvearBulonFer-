@@ -84,6 +84,10 @@ class SaleService:
     def get_all_sales(self) -> List[Sale]:
         return self._sale_repo.get_all()
 
+    def search_sales(self, query: str, limit: int = 0) -> List[Sale]:
+        """Busca ventas por cliente, ID o fecha. Opcionalmente limita resultados."""
+        return self._sale_repo.search(query, limit)
+
     def get_sales_by_date_range(self, start: datetime, end: datetime) -> List[Sale]:
         return self._sale_repo.get_by_date_range(start, end)
 

@@ -11,7 +11,7 @@ tornillos), este precio es menor al selling_price.
 """
 
 import customtkinter as ctk
-from tkinter import filedialog, messagebox
+from tkinter import filedialog, messagebox, ttk
 from decimal import Decimal
 from datetime import date, timedelta
 
@@ -19,9 +19,29 @@ from src.application.sale_service import SaleService
 from src.application.product_service import ProductService
 from src.application.settings_service import SettingsService
 from src.presentation.pdf_boleta import generate_boleta_pdf, items_from_sale_view
-from src.presentation.wheel_scroll import register_scrollable
 
 _MAX_SEARCH_RESULTS = 20
+_SEARCH_DEBOUNCE_MS = 250
+
+# Columnas de resultados de busqueda: (id interno, titulo, ancho)
+_RESULT_COLUMNS = (
+    ("name", "Nombre", 320),
+    ("supplier", "Proveedor", 130),
+    ("price", "Precio", 100),
+    ("list_date", "Lista", 100),
+    ("unit", "Unidad", 70),
+)
+
+# Columnas de items de la venta: (id interno, titulo, ancho)
+_ITEM_COLUMNS = (
+    ("product", "Producto", 260),
+    ("supplier", "Proveedor", 130),
+    ("cost", "P. Proveedor", 110),
+    ("list_date", "Lista", 100),
+    ("qty", "Cant.", 70),
+    ("price", "P. Unitario", 110),
+    ("subtotal", "Subtotal", 110),
+)
 
 
 class RegisterSaleView(ctk.CTkFrame):
@@ -37,6 +57,9 @@ class RegisterSaleView(ctk.CTkFrame):
         self._settings_service = settings_service
         self._sale_items = []  # Lista de (Product, cantidad, custom_unit_price_or_None)
         self._selected_product = None
+        self._result_products = {}  # iid del Treeview -> Product
+        self._item_iids = {}  # iid del Treeview -> indice en _sale_items
+        self._search_after_id = None
 
         self._build_ui()
 
@@ -59,6 +82,7 @@ class RegisterSaleView(ctk.CTkFrame):
         # Campo de texto para buscar (filtra resultados en tiempo real)
         self._search_entry = ctk.CTkEntry(search_frame, width=400)
         self._search_entry.grid(row=0, column=1, padx=5, pady=5)
+        self._search_entry.bind("<KeyRelease>", self._schedule_search)
         self._search_entry.bind("<Return>", self._on_search)
 
         ctk.CTkLabel(search_frame, text="Proveedor:").grid(
@@ -73,9 +97,36 @@ class RegisterSaleView(ctk.CTkFrame):
         self._supplier_var.trace_add("write", self._on_supplier_change)
 
         # Resultados de busqueda (se actualizan al escribir)
-        self._results_frame = ctk.CTkScrollableFrame(search_frame, height=300)
+        self._results_frame = ctk.CTkFrame(search_frame)
         self._results_frame.grid(row=1, column=0, columnspan=7, sticky="ew", pady=2)
-        register_scrollable(self._results_frame)
+
+        self._results_note = ctk.CTkLabel(
+            self._results_frame, text="", font=("Arial", 10, "italic"),
+            text_color="gray",
+        )
+        self._results_note.pack(side="bottom", fill="x", padx=4)
+
+        self._results_tree = ttk.Treeview(
+            self._results_frame,
+            columns=[c[0] for c in _RESULT_COLUMNS],
+            show="headings",
+            selectmode="browse",
+            height=8,
+        )
+        for col_id, title, width in _RESULT_COLUMNS:
+            self._results_tree.heading(col_id, text=title)
+            self._results_tree.column(
+                col_id, width=width, anchor="w", stretch=True
+            )
+        results_scroll = ttk.Scrollbar(
+            self._results_frame, orient="vertical",
+            command=self._results_tree.yview,
+        )
+        self._results_tree.configure(yscrollcommand=results_scroll.set)
+        self._results_tree.pack(side="left", fill="both", expand=True)
+        results_scroll.pack(side="right", fill="y")
+        self._results_tree.bind("<<TreeviewSelect>>", self._on_result_select)
+        self._results_tree.tag_configure("old", foreground="#c62828")
         search_frame.grid_columnconfigure(1, weight=1)
 
         # Cantidad a vender (en unidades, no paquetes)
@@ -168,24 +219,33 @@ class RegisterSaleView(ctk.CTkFrame):
         table_frame = ctk.CTkFrame(self)
         table_frame.pack(fill="both", expand=True, padx=20, pady=5)
 
-        _W = [1, 140, 110, 100, 60, 110, 120, 35]
-        _H = ["Producto", "Proveedor", "P. Proveedor", "Lista", "Cant.", "P. Unitario", "Subtotal", ""]
+        item_toolbar = ctk.CTkFrame(table_frame)
+        item_toolbar.pack(side="top", fill="x")
+        self._remove_btn = ctk.CTkButton(
+            item_toolbar,
+            text="Quitar ítem",
+            command=self._remove_selected_item,
+            width=110,
+            height=30,
+            font=("Arial", 12),
+        )
+        self._remove_btn.pack(side="right", padx=4, pady=2)
 
-        # Encabezados de la tabla
-        header_frame = ctk.CTkFrame(table_frame)
-        header_frame.pack(fill="x", pady=2)
-        for lbl, w in zip(_H, _W):
-            kw = dict(text=lbl, font=("Arial", 12, "bold"), anchor="w")
-            if w == 1:
-                ctk.CTkLabel(header_frame, **kw).pack(side="left", padx=4, fill="x", expand=True)
-            else:
-                ctk.CTkLabel(header_frame, width=w, **kw).pack(side="left", padx=4)
-
-        # Contenedor scrollable para los items
-        self._items_container = ctk.CTkScrollableFrame(table_frame)
-        self._items_container.pack(fill="both", expand=True, pady=5)
-        register_scrollable(self._items_container)
-        self._W = _W
+        self._items_tree = ttk.Treeview(
+            table_frame,
+            columns=[c[0] for c in _ITEM_COLUMNS],
+            show="headings",
+            selectmode="browse",
+        )
+        for col_id, title, width in _ITEM_COLUMNS:
+            self._items_tree.heading(col_id, text=title)
+            self._items_tree.column(col_id, width=width, anchor="w", stretch=True)
+        items_scroll = ttk.Scrollbar(
+            table_frame, orient="vertical", command=self._items_tree.yview
+        )
+        self._items_tree.configure(yscrollcommand=items_scroll.set)
+        self._items_tree.pack(side="left", fill="both", expand=True)
+        items_scroll.pack(side="right", fill="y")
 
         # === Barra inferior con total y botones ===
         bottom = ctk.CTkFrame(self)
@@ -239,12 +299,33 @@ class RegisterSaleView(ctk.CTkFrame):
         if query:
             self._do_search(query)
 
-    def _on_search(self, event=None):
-        query = self._search_entry.get().strip()
+    def _schedule_search(self, event=None):
+        """Programa una busqueda con debounce mientras el usuario escribe."""
+        if event is not None and event.keysym == "Return":
+            return
+        if self._search_after_id is not None:
+            self.after_cancel(self._search_after_id)
+        self._search_after_id = self.after(
+            _SEARCH_DEBOUNCE_MS, self._run_scheduled_search
+        )
 
-        # Limpiar resultados anteriores
-        for w in self._results_frame.winfo_children():
-            w.destroy()
+    def _run_scheduled_search(self):
+        self._search_after_id = None
+        self._on_search()
+
+    def _clear_results(self):
+        for iid in self._results_tree.get_children():
+            self._results_tree.delete(iid)
+        self._result_products.clear()
+        self._results_note.configure(text="")
+
+    def _on_search(self, event=None):
+        if self._search_after_id is not None:
+            self.after_cancel(self._search_after_id)
+            self._search_after_id = None
+
+        query = self._search_entry.get().strip()
+        self._clear_results()
 
         if not query:
             self._selected_product = None
@@ -262,12 +343,10 @@ class RegisterSaleView(ctk.CTkFrame):
         supplier_filter = '' if supplier == 'Todos' else supplier
         matches = self._product_service.search_products(query, supplier_filter, limit=_MAX_SEARCH_RESULTS + 1)
 
+        self._clear_results()
+
         if not matches:
-            ctk.CTkLabel(
-                self._results_frame,
-                text="Sin resultados",
-                font=("Arial", 10, "italic"),
-            ).pack(pady=5)
+            self._results_note.configure(text="Sin resultados")
             self._search_entry.focus_set()
             return
 
@@ -277,37 +356,42 @@ class RegisterSaleView(ctk.CTkFrame):
 
         cutoff = date.today() - timedelta(days=61)
         for product in matches[:_MAX_SEARCH_RESULTS]:
-            is_old = product.list_date < cutoff
-            btn = ctk.CTkButton(
-                self._results_frame,
-                text=f"{product.name}  |  Cod: {product.code}  |  P.Prov: ${product.supplier_price:,.2f}  |  P.Venta: ${product.selling_price:,.2f}  |  {product.supplier}  |  Lista: {product.list_date}",
-                anchor="w",
-                fg_color="transparent",
-                text_color=("#c62828", "#ef5350") if is_old else ("black", "white"),
-                hover_color=("#e0e0e0", "#333333"),
-                command=lambda p=product: self._select_result(p),
+            up = self._product_unit_price(product)
+            tags = ("old",) if product.list_date < cutoff else ()
+            iid = self._results_tree.insert(
+                "",
+                "end",
+                values=(
+                    product.name,
+                    product.supplier,
+                    f"${up:,.2f}",
+                    str(product.list_date),
+                    str(product.unit_quantity),
+                ),
+                tags=tags,
             )
-            btn.pack(fill="x", pady=1)
+            self._result_products[iid] = product
 
         if len(matches) > _MAX_SEARCH_RESULTS:
-            ctk.CTkLabel(
-                self._results_frame,
-                text="... y mas resultados. Sea mas especifico.",
-                font=("Arial", 10, "italic"),
-                text_color="gray",
-            ).pack(pady=2)
+            self._results_note.configure(
+                text="... y mas resultados. Sea mas especifico."
+            )
 
         self._search_entry.focus_set()
+
+    def _on_result_select(self, event=None):
+        selection = self._results_tree.selection()
+        if not selection:
+            return
+        product = self._result_products.get(selection[0])
+        if product is not None:
+            self._select_result(product)
 
     def _select_result(self, product):
         """Selecciona un producto de los resultados de busqueda."""
         self._selected_product = product
         self._search_entry.delete(0, "end")
         self._search_entry.insert(0, product.name)
-
-        # Limpiar panel de resultados
-        for w in self._results_frame.winfo_children():
-            w.destroy()
 
         # Prellenar precio unitario
         up = self._product_unit_price(product)
@@ -375,8 +459,7 @@ class RegisterSaleView(ctk.CTkFrame):
         self._qty_entry.delete(0, "end")
         self._qty_entry.insert(0, "1")
         self._unit_price_entry.delete(0, "end")
-        for w in self._results_frame.winfo_children():
-            w.destroy()
+        self._clear_results()
 
     def _add_free_item(self):
         name = self._free_name_entry.get().strip()
@@ -433,8 +516,9 @@ class RegisterSaleView(ctk.CTkFrame):
 
     def _render_items(self):
         """Renderiza la tabla de productos en la venta actual."""
-        for w in self._items_container.winfo_children():
-            w.destroy()
+        for iid in self._items_tree.get_children():
+            self._items_tree.delete(iid)
+        self._item_iids.clear()
 
         total = Decimal("0")
         for i, (product, qty, custom_price) in enumerate(self._sale_items):
@@ -442,44 +526,36 @@ class RegisterSaleView(ctk.CTkFrame):
             subtotal = up * qty
             total += subtotal
 
-            # Fila del item
-            row = ctk.CTkFrame(self._items_container)
-            row.pack(fill="x", pady=1)
-
-            vals = [
-                product.name,
-                product.supplier,
-                f"${product.supplier_price:,.2f}",
-                str(product.list_date),
-                str(qty),
-                f"${up:,.2f}",
-                f"${subtotal:,.2f}",
-            ]
-            for v, w in zip(vals, self._W):
-                kw = dict(text=v, anchor="w")
-                if w == 1:
-                    ctk.CTkLabel(row, **kw).pack(side="left", padx=4, fill="x", expand=True)
-                else:
-                    ctk.CTkLabel(row, width=w, **kw).pack(side="left", padx=4)
-
-            ctk.CTkButton(
-                row,
-                text="X",
-                width=35,
-                fg_color="#c62828",
-                command=lambda idx=i: self._remove_item(idx),
-            ).pack(side="right", padx=4)
+            iid = self._items_tree.insert(
+                "",
+                "end",
+                values=(
+                    product.name,
+                    product.supplier,
+                    f"${product.supplier_price:,.2f}",
+                    str(product.list_date),
+                    str(qty),
+                    f"${up:,.2f}",
+                    f"${subtotal:,.2f}",
+                ),
+            )
+            self._item_iids[iid] = i
 
         self._total_label.configure(text=f"Total: ${total:,.2f}")
         state = "normal" if self._sale_items else "disabled"
         self._register_btn.configure(state=state)
         self._boleta_btn.configure(state=state)
 
-    def _remove_item(self, index):
-        """Elimina un item de la venta por su indice."""
-        if 0 <= index < len(self._sale_items):
-            self._sale_items.pop(index)
-            self._render_items()
+    def _remove_selected_item(self):
+        """Elimina el item seleccionado en la tabla de la venta actual."""
+        selection = self._items_tree.selection()
+        if not selection:
+            return
+        index = self._item_iids.get(selection[0])
+        if index is None or not (0 <= index < len(self._sale_items)):
+            return
+        self._sale_items.pop(index)
+        self._render_items()
 
     def _clear_sale(self):
         """Limpia todos los items de la venta actual."""
