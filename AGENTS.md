@@ -134,7 +134,7 @@ unit_price        = selling_price / unit_quantity
    - Perfil (cProfile, misma máquina): ~92 % del tiempo de construcción se concentró en `SalesHistoryView` → `CTkScrollableFrame`/scrollbar. Apoya el ítem 4.
    - **Pendiente**: repetir la medición en la PC del local (Windows 11) con la app cerrada y la máquina en reposo.
 4. ~~Reemplazar listas de widgets por `ttk.Treeview` (productos, ítems de venta, historial); búsqueda con SQL + `LIMIT` y *debounce*.~~ Hecho (issue #5, 2026-11-20). Pendiente: migrar las 4 vistas restantes con `CTkScrollableFrame` para poder borrar `wheel_scroll.py`.
-5. Índices en `products.name`, `sales.created_at`, `sale_items.sale_id`, `expenses.date`; `PRAGMA synchronous=NORMAL` con WAL; ventas en una transacción.
+5. ~~Índices en `products.name`, `sales.created_at`, `sale_items.sale_id`, `expenses.date`; `PRAGMA synchronous=NORMAL` con WAL; ventas en una transacción.~~ Hecho (issue #6, 2026-11-20).
 6. Importación de listas: imports perezosos (`openpyxl`/`xlrd` solo al abrir la pestaña), procesar en hilo con progreso.
 7. Dinero en centavos enteros (migración de datos incluida y probada con copia de la base).
 8. Empaquetado PyInstaller `--onedir` para Windows 11.
@@ -174,3 +174,4 @@ Límites:
 - 2026-11-19 — Versiones fijadas en `requirements.txt` y aviso de entorno al arrancar (issue #3): Python 3.12/3.13 + Tk 8.6, 44 tests.
 - 2026-11-19 — Script de medición de rendimiento (issue #4): `scripts/medir_rendimiento.py`, resultados en §8.3, 47 tests.
 - 2026-11-20 — Listas de productos, ítems de venta e historial migradas a `ttk.Treeview` con `LIMIT` y debounce; `search_sales` nuevo (issue #5), 48 tests.
+- 2026-11-20 — Índices de búsqueda, `synchronous=NORMAL` y venta atómica con rollback (issue #6): 51 tests.
