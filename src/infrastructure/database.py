@@ -26,6 +26,9 @@ def get_connection() -> sqlite3.Connection:
     # WAL = Write-Ahead Logging: permite lecturas concurrentes sin bloqueo
     conn.execute("PRAGMA journal_mode=WAL")
 
+    # Con WAL, NORMAL reduce escrituras al disco sin perder durabilidad
+    conn.execute("PRAGMA synchronous=NORMAL")
+
     # Activa restricciones de clave foranea (ON DELETE CASCADE, etc.)
     conn.execute("PRAGMA foreign_keys=ON")
 
@@ -111,6 +114,12 @@ def init_db() -> None:
             list_date TEXT NOT NULL,
             created_at TEXT NOT NULL
         );
+
+        -- Indices para busquedas y listados frecuentes
+        CREATE INDEX IF NOT EXISTS idx_products_name ON products(name);
+        CREATE INDEX IF NOT EXISTS idx_sales_created_at ON sales(created_at);
+        CREATE INDEX IF NOT EXISTS idx_sale_items_sale_id ON sale_items(sale_id);
+        CREATE INDEX IF NOT EXISTS idx_expenses_date ON expenses(date);
 
         -- Valores por defecto de configuracion
         INSERT OR IGNORE INTO settings (key, value) VALUES ('usd_rate', '1500');
