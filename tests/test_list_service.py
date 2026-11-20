@@ -85,6 +85,46 @@ class TestImportFromXLS:
         )
         assert result["imported"] == 0
 
+    def test_progress_reports_every_row(self, list_service, product_repo):
+        """El callback progress se invoca una vez por cada fila, con (fila, total)."""
+        product_repo.find_by_name_and_supplier.return_value = None
+        calls = []
+        rows = [
+            {"name": "A", "category": "C", "supplier_price": "10"},
+            {"name": "B", "category": "C", "supplier_price": "20"},
+            {"name": "C", "category": "C", "supplier_price": "30"},
+        ]
+        result = list_service.import_from_xls_rows(
+            rows,
+            "Prov",
+            date(2026, 7, 1),
+            Decimal("100"),
+            Decimal("160"),
+            progress=lambda done, total: calls.append((done, total)),
+        )
+        assert calls == [(1, 3), (2, 3), (3, 3)]
+        assert result["imported"] == 3
+
+    def test_progress_counts_skipped_rows(self, list_service, product_repo):
+        """El progreso tambien cuenta las filas que terminan siendo salteadas."""
+        product_repo.find_by_name_and_supplier.return_value = None
+        calls = []
+        rows = [
+            {"name": "", "category": "C", "supplier_price": "10"},
+            {"name": "B", "category": "C", "supplier_price": "abc"},
+            {"name": "C", "category": "C", "supplier_price": "30"},
+        ]
+        result = list_service.import_from_xls_rows(
+            rows,
+            "Prov",
+            date(2026, 7, 1),
+            Decimal("100"),
+            Decimal("160"),
+            progress=lambda done, total: calls.append((done, total)),
+        )
+        assert calls == [(1, 3), (2, 3), (3, 3)]
+        assert result["imported"] == 1
+
     def test_price_calculation(self, list_service, product_repo):
         captured = []
         product_repo.add.side_effect = lambda p: fake_product(
