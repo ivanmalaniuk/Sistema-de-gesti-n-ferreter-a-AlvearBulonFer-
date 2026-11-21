@@ -10,6 +10,9 @@ El archivo ferreteria.db se crea automaticamente en la raiz del proyecto.
 
 import sqlite3
 import os
+import re
+
+from src.infrastructure.backup import create_backup
 
 # Ruta absoluta a la base de datos (en la raiz del proyecto)
 DB_DIR = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
@@ -35,6 +38,155 @@ def get_connection() -> sqlite3.Connection:
     return conn
 
 
+# Columnas de dinero que se guardan en centavos enteros (INTEGER)
+_COLUMNAS_DINERO = {
+    "products": (
+        "supplier_price",
+        "selling_price",
+        "unit_price",
+        "price_usd",
+        "selling_price_usd",
+    ),
+    "sales": ("total_amount",),
+    "sale_items": ("unit_price", "subtotal", "cost_price"),
+    "expenses": ("amount",),
+}
+
+# Indices que un rebuild de tabla puede borrar; se recrean al terminar
+_SQL_INDICES = (
+    "CREATE INDEX IF NOT EXISTS idx_products_name ON products(name)",
+    "CREATE INDEX IF NOT EXISTS idx_sales_created_at ON sales(created_at)",
+    "CREATE INDEX IF NOT EXISTS idx_sale_items_sale_id ON sale_items(sale_id)",
+    "CREATE INDEX IF NOT EXISTS idx_expenses_date ON expenses(date)",
+    "CREATE INDEX IF NOT EXISTS idx_products_supplier ON products(supplier)",
+    "CREATE INDEX IF NOT EXISTS idx_products_supplier_date ON products(supplier, list_date)",
+)
+
+
+def _tablas_con_dinero_real(cursor) -> list:
+    """Tablas que todavia declaran alguna columna de dinero como REAL."""
+    tablas = []
+    for tabla, columnas in _COLUMNAS_DINERO.items():
+        for fila in cursor.execute(f"PRAGMA table_info({tabla})"):
+            if fila["name"] in columnas and (fila["type"] or "").upper() == "REAL":
+                tablas.append(tabla)
+                break
+    return tablas
+
+
+def _leer_config_backup(cursor) -> tuple:
+    """Lee backup_dir y backup_keep de settings, con los mismos defaults."""
+    valores = {}
+    try:
+        for fila in cursor.execute(
+            "SELECT key, value FROM settings WHERE key IN ('backup_dir', 'backup_keep')"
+        ):
+            valores[fila["key"]] = fila["value"]
+    except sqlite3.Error:
+        pass
+
+    backup_dir = valores.get("backup_dir") or "backups"
+    try:
+        keep_last = int(valores.get("backup_keep", "10"))
+    except (TypeError, ValueError):
+        keep_last = 10
+    return backup_dir, keep_last
+
+
+def _sql_tabla_en_centavos(conn, tabla: str) -> str:
+    """
+    Devuelve el CREATE TABLE de `tabla` con otro nombre y las columnas de
+    dinero declaradas como INTEGER. Conserva el resto de la estructura.
+    """
+    fila = conn.execute(
+        "SELECT sql FROM sqlite_master WHERE type = 'table' AND name = ?", (tabla,)
+    ).fetchone()
+    sql = fila[0]
+
+    # Cambia el nombre de la tabla destino (evita crear la misma tabla)
+    sql = re.sub(
+        r"(?i)^(\s*CREATE\s+TABLE\s+(?:IF\s+NOT\s+EXISTS\s+)?)"
+        + re.escape(tabla)
+        + r"\b",
+        r"\g<1>" + tabla + "_centavos",
+        sql,
+        count=1,
+    )
+
+    # Cambia el tipo declarado de las columnas de dinero
+    for columna in _COLUMNAS_DINERO[tabla]:
+        sql = re.sub(
+            r"(?i)(\b" + re.escape(columna) + r"\b\s+)REAL\b",
+            r"\g<1>INTEGER",
+            sql,
+        )
+    return sql
+
+
+def _reconstruir_tabla_en_centavos(conn, tabla: str) -> None:
+    """Crea la tabla nueva con dinero INTEGER y copia los datos convertidos."""
+    destino = f"{tabla}_centavos"
+    columnas = [fila["name"] for fila in conn.execute(f"PRAGMA table_info({tabla})")]
+
+    conn.execute(f"DROP TABLE IF EXISTS {destino}")
+    conn.execute(_sql_tabla_en_centavos(conn, tabla))
+
+    lista_columnas = ", ".join(columnas)
+    lista_valores = ", ".join(
+        f"CAST(ROUND({columna} * 100.0) AS INTEGER)"
+        if columna in _COLUMNAS_DINERO[tabla]
+        else columna
+        for columna in columnas
+    )
+    conn.execute(
+        f"INSERT INTO {destino} ({lista_columnas}) "
+        f"SELECT {lista_valores} FROM {tabla}"
+    )
+    conn.execute(f"DROP TABLE {tabla}")
+    conn.execute(f"ALTER TABLE {destino} RENAME TO {tabla}")
+
+
+def _migrar_dinero_a_centavos(conn) -> None:
+    """
+    Convierte las columnas de dinero de REAL (pesos) a INTEGER (centavos).
+
+    Es idempotente: solo actua si alguna columna sigue declarada REAL. Antes
+    de tocar datos crea un backup; si el backup falla, la migracion se aborta
+    y los datos originales quedan intactos.
+    """
+    cursor = conn.cursor()
+    tablas = _tablas_con_dinero_real(cursor)
+    if not tablas:
+        return
+
+    backup_dir, keep_last = _leer_config_backup(cursor)
+    # Si el backup falla, la excepcion se propaga antes de modificar datos
+    create_backup(DB_PATH, backup_dir, keep_last)
+
+    # Las FK se desactivan fuera de la transaccion (dentro no tienen efecto)
+    cursor.execute("PRAGMA foreign_keys=OFF")
+    try:
+        cursor.execute("BEGIN")
+        for tabla in tablas:
+            _reconstruir_tabla_en_centavos(conn, tabla)
+
+        # El rebuild borra los indices de las tablas reconstruidas
+        for sql in _SQL_INDICES:
+            cursor.execute(sql)
+
+        if cursor.execute("PRAGMA foreign_key_check").fetchall():
+            raise sqlite3.IntegrityError(
+                "La migracion a centavos dejaria claves foraneas invalidas"
+            )
+
+        conn.commit()
+    except Exception:
+        conn.rollback()
+        raise
+    finally:
+        cursor.execute("PRAGMA foreign_keys=ON")
+
+
 def init_db() -> None:
     """
     Crea las tablas si no existen e inserta valores por defecto.
@@ -57,12 +209,12 @@ def init_db() -> None:
             category TEXT NOT NULL DEFAULT '',
             supplier TEXT NOT NULL DEFAULT '',
             list_date TEXT NOT NULL DEFAULT '',
-            supplier_price REAL NOT NULL DEFAULT 0,
-            selling_price REAL NOT NULL DEFAULT 0,
+            supplier_price INTEGER NOT NULL DEFAULT 0,
+            selling_price INTEGER NOT NULL DEFAULT 0,
             unit_quantity INTEGER NOT NULL DEFAULT 1,
-            unit_price REAL NOT NULL DEFAULT 0,
-            price_usd REAL NOT NULL DEFAULT 0,
-            selling_price_usd REAL NOT NULL DEFAULT 0,
+            unit_price INTEGER NOT NULL DEFAULT 0,
+            price_usd INTEGER NOT NULL DEFAULT 0,
+            selling_price_usd INTEGER NOT NULL DEFAULT 0,
             code TEXT NOT NULL DEFAULT '',
             created_at TEXT NOT NULL
         );
@@ -70,7 +222,7 @@ def init_db() -> None:
         -- Cabecera de ventas
         CREATE TABLE IF NOT EXISTS sales (
             id INTEGER PRIMARY KEY AUTOINCREMENT,
-            total_amount REAL NOT NULL,
+            total_amount INTEGER NOT NULL,
             created_at TEXT NOT NULL
         );
 
@@ -80,9 +232,9 @@ def init_db() -> None:
             sale_id INTEGER NOT NULL,
             product_id INTEGER NOT NULL,
             quantity REAL NOT NULL,
-            unit_price REAL NOT NULL,
-            subtotal REAL NOT NULL,
-            cost_price REAL NOT NULL DEFAULT 0,
+            unit_price INTEGER NOT NULL,
+            subtotal INTEGER NOT NULL,
+            cost_price INTEGER NOT NULL DEFAULT 0,
             FOREIGN KEY (sale_id) REFERENCES sales(id) ON DELETE CASCADE,
             FOREIGN KEY (product_id) REFERENCES products(id)
         );
@@ -100,7 +252,7 @@ def init_db() -> None:
         CREATE TABLE IF NOT EXISTS expenses (
             id INTEGER PRIMARY KEY AUTOINCREMENT,
             description TEXT NOT NULL,
-            amount REAL NOT NULL,
+            amount INTEGER NOT NULL,
             date TEXT NOT NULL,
             category TEXT NOT NULL,
             created_at TEXT NOT NULL
@@ -196,4 +348,9 @@ def init_db() -> None:
         pass
 
     conn.commit()
-    conn.close()
+
+    # Migracion final: dinero de REAL (pesos) a INTEGER (centavos)
+    try:
+        _migrar_dinero_a_centavos(conn)
+    finally:
+        conn.close()
