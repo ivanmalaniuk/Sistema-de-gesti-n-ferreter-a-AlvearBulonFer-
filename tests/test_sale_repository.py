@@ -20,18 +20,18 @@ CREATE TABLE products (
     category TEXT NOT NULL DEFAULT '',
     supplier TEXT NOT NULL DEFAULT '',
     list_date TEXT NOT NULL DEFAULT '',
-    supplier_price REAL NOT NULL DEFAULT 0,
-    selling_price REAL NOT NULL DEFAULT 0,
+    supplier_price INTEGER NOT NULL DEFAULT 0,
+    selling_price INTEGER NOT NULL DEFAULT 0,
     unit_quantity INTEGER NOT NULL DEFAULT 1,
-    unit_price REAL NOT NULL DEFAULT 0,
-    price_usd REAL NOT NULL DEFAULT 0,
-    selling_price_usd REAL NOT NULL DEFAULT 0,
+    unit_price INTEGER NOT NULL DEFAULT 0,
+    price_usd INTEGER NOT NULL DEFAULT 0,
+    selling_price_usd INTEGER NOT NULL DEFAULT 0,
     code TEXT NOT NULL DEFAULT '',
     created_at TEXT NOT NULL
 );
 CREATE TABLE sales (
     id INTEGER PRIMARY KEY AUTOINCREMENT,
-    total_amount REAL NOT NULL,
+    total_amount INTEGER NOT NULL,
     created_at TEXT NOT NULL,
     customer TEXT NOT NULL DEFAULT ''
 );
@@ -40,9 +40,9 @@ CREATE TABLE sale_items (
     sale_id INTEGER NOT NULL,
     product_id INTEGER NOT NULL,
     quantity REAL NOT NULL,
-    unit_price REAL NOT NULL,
-    subtotal REAL NOT NULL,
-    cost_price REAL NOT NULL DEFAULT 0,
+    unit_price INTEGER NOT NULL,
+    subtotal INTEGER NOT NULL,
+    cost_price INTEGER NOT NULL DEFAULT 0,
     FOREIGN KEY (sale_id) REFERENCES sales(id) ON DELETE CASCADE,
     FOREIGN KEY (product_id) REFERENCES products(id)
 );
@@ -128,6 +128,18 @@ def test_venta_exitosa_guarda_cabecera_e_items(db, monkeypatch):
     assert espia.real.in_transaction is False
     assert espia.real.execute("SELECT COUNT(*) FROM sales").fetchone()[0] == 1
     assert espia.real.execute("SELECT COUNT(*) FROM sale_items").fetchone()[0] == 1
+
+    # El dinero se guarda en centavos enteros; quantity sigue en REAL.
+    total = espia.real.execute("SELECT total_amount FROM sales").fetchone()[0]
+    assert isinstance(total, int)
+    assert total == 32000  # 2 * $160 = $320.00
+    cantidad, unit_price, subtotal, cost_price = espia.real.execute(
+        "SELECT quantity, unit_price, subtotal, cost_price FROM sale_items"
+    ).fetchone()
+    assert unit_price == 16000
+    assert subtotal == 32000
+    assert cost_price == 0
+    assert cantidad == 2.0
 
 
 def test_fallo_en_item_hace_rollback(db, monkeypatch):

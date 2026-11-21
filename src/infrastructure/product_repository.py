@@ -1,16 +1,16 @@
 """
 CAPA DE INFRAESTRUCTURA — Repositorio de productos (SQLite).
 
-Implementa IProductRepository. Convierte entre filas SQLite (con REAL
-para precios) y objetos Product del dominio (con Decimal para precision).
+Implementa IProductRepository. Convierte entre filas SQLite (dinero en
+centavos enteros) y objetos Product del dominio (con Decimal para precision).
 """
 
 from datetime import datetime, date
-from decimal import Decimal
 from typing import List, Optional
 
 from src.domain.entities import Product
 from src.domain.interfaces import IProductRepository
+from src.infrastructure.cents import from_cents, to_cents
 from src.infrastructure.database import get_connection
 
 
@@ -24,12 +24,12 @@ def _row_to_product(row) -> Product:
         list_date=date.fromisoformat(row["list_date"])
         if row["list_date"]
         else date.today(),
-        supplier_price=Decimal(str(row["supplier_price"])),
-        selling_price=Decimal(str(row["selling_price"])),
+        supplier_price=from_cents(row["supplier_price"]),
+        selling_price=from_cents(row["selling_price"]),
         unit_quantity=row["unit_quantity"],
-        unit_price=Decimal(str(row["unit_price"])),
-        price_usd=Decimal(str(row["price_usd"])),
-        selling_price_usd=Decimal(str(row["selling_price_usd"])),
+        unit_price=from_cents(row["unit_price"]),
+        price_usd=from_cents(row["price_usd"]),
+        selling_price_usd=from_cents(row["selling_price_usd"]),
         code=row["code"] if row["code"] else '',
         created_at=datetime.fromisoformat(row["created_at"])
         if row["created_at"]
@@ -56,12 +56,12 @@ class SQLiteProductRepository(IProductRepository):
                 product.category,
                 product.supplier,
                 product.list_date.isoformat(),
-                float(product.supplier_price),
-                float(product.selling_price),
+                to_cents(product.supplier_price),
+                to_cents(product.selling_price),
                 product.unit_quantity,
-                float(product.unit_price),
-                float(product.price_usd),
-                float(product.selling_price_usd),
+                to_cents(product.unit_price),
+                to_cents(product.price_usd),
+                to_cents(product.selling_price_usd),
                 product.code,
                 now,
             ),
@@ -153,12 +153,12 @@ class SQLiteProductRepository(IProductRepository):
                 product.category,
                 product.supplier,
                 product.list_date.isoformat(),
-                float(product.supplier_price),
-                float(product.selling_price),
+                to_cents(product.supplier_price),
+                to_cents(product.selling_price),
                 product.unit_quantity,
-                float(product.unit_price),
-                float(product.price_usd),
-                float(product.selling_price_usd),
+                to_cents(product.unit_price),
+                to_cents(product.price_usd),
+                to_cents(product.selling_price_usd),
                 product.code,
                 product.id,
             ),

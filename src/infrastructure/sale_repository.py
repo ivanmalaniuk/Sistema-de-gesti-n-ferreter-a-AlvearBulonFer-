@@ -4,6 +4,7 @@ from typing import List, Optional
 
 from src.domain.entities import Product, Sale, SaleItem
 from src.domain.interfaces import ISaleRepository, IProductRepository
+from src.infrastructure.cents import from_cents, to_cents
 from src.infrastructure.database import get_connection
 
 
@@ -21,7 +22,7 @@ class SQLiteSaleRepository(ISaleRepository):
         try:
             cursor.execute(
                 "INSERT INTO sales (total_amount, created_at, customer) VALUES (?, ?, ?)",
-                (float(sale.total_amount), now, sale.customer),
+                (to_cents(sale.total_amount), now, sale.customer),
             )
             sale_id = cursor.lastrowid
 
@@ -36,9 +37,9 @@ class SQLiteSaleRepository(ISaleRepository):
                         sale_id,
                         item.product.id,
                         float(item.quantity),
-                        float(item.unit_price),
-                        float(item.subtotal),
-                        float(item.cost_price),
+                        to_cents(item.unit_price),
+                        to_cents(item.subtotal),
+                        to_cents(item.cost_price),
                     ),
                 )
 
@@ -92,8 +93,8 @@ class SQLiteSaleRepository(ISaleRepository):
     def _build_items(self, item_rows, sale_id: int) -> List[SaleItem]:
         items = []
         for row in item_rows:
-            unit_price = Decimal(str(row["unit_price"]))
-            cost_price = Decimal(str(row["cost_price"])) if row["cost_price"] else Decimal("0")
+            unit_price = from_cents(row["unit_price"])
+            cost_price = from_cents(row["cost_price"]) if row["cost_price"] else Decimal("0")
 
             try:
                 list_date = date.fromisoformat(row["list_date"]) if row["list_date"] else date.today()
@@ -106,7 +107,7 @@ class SQLiteSaleRepository(ISaleRepository):
                 category=row["category"],
                 supplier=row["supplier"] if row["supplier"] else '',
                 list_date=list_date,
-                supplier_price=Decimal(str(row["supplier_price"])) if row["supplier_price"] else cost_price,
+                supplier_price=from_cents(row["supplier_price"]) if row["supplier_price"] else cost_price,
                 selling_price=unit_price,
                 unit_quantity=row["unit_quantity"] if row["unit_quantity"] else 1,
                 unit_price=unit_price,

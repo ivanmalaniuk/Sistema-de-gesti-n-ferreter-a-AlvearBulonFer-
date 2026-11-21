@@ -12,7 +12,7 @@ y comportamiento esencial.
 
 from dataclasses import dataclass
 from datetime import datetime, date
-from decimal import Decimal
+from decimal import Decimal, ROUND_HALF_UP
 from typing import List, Optional
 
 
@@ -62,7 +62,7 @@ class SaleItem:
 
     @property
     def subtotal(self) -> Decimal:
-        return self.unit_price * self.quantity
+        return (self.unit_price * self.quantity).quantize(Decimal("0.01"), rounding=ROUND_HALF_UP)
 
 
 @dataclass

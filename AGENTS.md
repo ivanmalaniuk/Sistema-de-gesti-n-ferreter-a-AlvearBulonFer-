@@ -2,7 +2,7 @@
 
 > Leer este archivo completo al iniciar la sesión. Es la fuente de verdad del proyecto.
 > `CONTEXT.md` es documentación histórica para humanos: NO leerlo salvo que se pida. Si difieren, manda este archivo.
-> Última actualización: 2026-11-20
+> Última actualización: 2026-11-21
 
 ## 1. Qué es
 
@@ -78,7 +78,7 @@ SQLite (WAL, foreign keys ON). Se crea sola en la raíz al primer arranque.
 - `expenses`: id, description, amount, date, category (Insumos, Servicios, Alquiler…), created_at
 - `settings`: key, value → `usd_rate` (default 1500), `profit_margin` (default 160), `backup_dir` (default `backups`), `backup_keep` (default 10)
 
-Dinero hoy: `REAL` en SQLite, convertido a `Decimal` en Python. **Cambio planeado**: guardar en centavos enteros (ver §8).
+Dinero: centavos enteros (`INTEGER`) en SQLite desde issue #8; `Decimal` en pesos solo en el dominio, conversión en el límite repositorio (`src/infrastructure/cents.py`). Las bases viejas con `REAL` se migran solas al arrancar, con backup previo.
 
 **Fórmulas de precio** (al importar y al recalcular):
 ```
@@ -136,7 +136,7 @@ unit_price        = selling_price / unit_quantity
 4. ~~Reemplazar listas de widgets por `ttk.Treeview` (productos, ítems de venta, historial); búsqueda con SQL + `LIMIT` y *debounce*.~~ Hecho (issue #5, 2026-11-20). Pendiente: migrar las 4 vistas restantes con `CTkScrollableFrame` para poder borrar `wheel_scroll.py`.
 5. ~~Índices en `products.name`, `sales.created_at`, `sale_items.sale_id`, `expenses.date`; `PRAGMA synchronous=NORMAL` con WAL; ventas en una transacción.~~ Hecho (issue #6, 2026-11-20).
 6. ~~Importación de listas: imports perezosos (`openpyxl`/`xlrd` solo al abrir la pestaña), procesar en hilo con progreso.~~ Hecho (issue #7, 2026-11-20).
-7. Dinero en centavos enteros (migración de datos incluida y probada con copia de la base).
+7. ~~Dinero en centavos enteros (migración de datos incluida y probada con copia de la base).~~ Hecho (issue #8).
 8. Empaquetado PyInstaller `--onedir` para Windows 11.
 
 Ideas futuras (NO hacer sin pedido): exportar reportes a PDF/Excel, gráficos mensuales, historial de listas por proveedor, control de stock.
@@ -176,3 +176,4 @@ Límites:
 - 2026-11-20 — Listas de productos, ítems de venta e historial migradas a `ttk.Treeview` con `LIMIT` y debounce; `search_sales` nuevo (issue #5), 48 tests.
 - 2026-11-20 — Índices de búsqueda, `synchronous=NORMAL` y venta atómica con rollback (issue #6): 51 tests.
 - 2026-11-20 — Lectura e importación de listas en hilo con barra de progreso; test que fija los imports perezosos de `openpyxl`/`xlrd` (issue #7): 55 tests.
+- 2026-11-21 — Dinero en centavos enteros (issue #8): esquema `INTEGER`, migración automática con backup previo, conversión en repositorios: 70 tests.
