@@ -6,11 +6,11 @@ descripcion, monto, fecha y categoria.
 """
 
 from datetime import datetime
-from decimal import Decimal
 from typing import List, Optional
 
 from src.domain.entities import Expense
 from src.domain.interfaces import IExpenseRepository
+from src.infrastructure.cents import from_cents, to_cents
 from src.infrastructure.database import get_connection
 
 
@@ -25,7 +25,7 @@ class SQLiteExpenseRepository(IExpenseRepository):
             "INSERT INTO expenses (description, amount, date, category, supplier, created_at) VALUES (?, ?, ?, ?, ?, ?)",
             (
                 expense.description,
-                float(expense.amount),
+                to_cents(expense.amount),
                 expense.date.isoformat(),
                 expense.category,
                 expense.supplier,
@@ -49,7 +49,7 @@ class SQLiteExpenseRepository(IExpenseRepository):
         return Expense(
             id=row["id"],
             description=row["description"],
-            amount=Decimal(str(row["amount"])),
+            amount=from_cents(row["amount"]),
             date=datetime.fromisoformat(row["date"]),
             category=row["category"],
             supplier=row["supplier"] if row["supplier"] else '',
@@ -66,7 +66,7 @@ class SQLiteExpenseRepository(IExpenseRepository):
             Expense(
                 id=row["id"],
                 description=row["description"],
-                amount=Decimal(str(row["amount"])),
+                amount=from_cents(row["amount"]),
                 date=datetime.fromisoformat(row["date"]),
                 category=row["category"],
                 supplier=row["supplier"] if row["supplier"] else '',
@@ -88,7 +88,7 @@ class SQLiteExpenseRepository(IExpenseRepository):
             Expense(
                 id=row["id"],
                 description=row["description"],
-                amount=Decimal(str(row["amount"])),
+                amount=from_cents(row["amount"]),
                 date=datetime.fromisoformat(row["date"]),
                 category=row["category"],
                 supplier=row["supplier"] if row["supplier"] else '',

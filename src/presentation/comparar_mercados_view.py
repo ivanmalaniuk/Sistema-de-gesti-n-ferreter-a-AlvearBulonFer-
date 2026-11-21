@@ -146,7 +146,7 @@ class CompararMercadosView(ctk.CTkFrame):
         def sort_key(p):
             val = getattr(p, sort_field, "")
             if sort_field in ("supplier_price", "selling_price", "unit_price"):
-                return float(val) if isinstance(val, Decimal) else val
+                return val if isinstance(val, Decimal) else Decimal(str(val))
             if sort_field == "list_date":
                 return str(val) if val else ""
             return str(val).lower() if val else ""
