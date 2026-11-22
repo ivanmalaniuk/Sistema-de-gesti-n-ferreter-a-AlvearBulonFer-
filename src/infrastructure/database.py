@@ -11,11 +11,20 @@ El archivo ferreteria.db se crea automaticamente en la raiz del proyecto.
 import sqlite3
 import os
 import re
+import sys
 
 from src.infrastructure.backup import create_backup
 
-# Ruta absoluta a la base de datos (en la raiz del proyecto)
-DB_DIR = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
+
+def _dir_datos() -> str:
+    """Carpeta de datos: junto al .exe si la app esta congelada, si no la raiz."""
+    if getattr(sys, "frozen", False):
+        return os.path.dirname(os.path.abspath(sys.executable))
+    return os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
+
+
+# Ruta absoluta a la base de datos (en la raiz del proyecto o junto al .exe)
+DB_DIR = _dir_datos()
 DB_PATH = os.path.join(DB_DIR, "ferreteria.db")
 
 

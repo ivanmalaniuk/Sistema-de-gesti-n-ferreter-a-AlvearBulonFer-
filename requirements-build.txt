@@ -1,0 +1,2 @@
+# Solo para la máquina que compila el .exe (no se instala en la PC del local).
+pyinstaller==6.22.3

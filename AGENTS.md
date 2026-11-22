@@ -2,7 +2,7 @@
 
 > Leer este archivo completo al iniciar la sesión. Es la fuente de verdad del proyecto.
 > `CONTEXT.md` es documentación histórica para humanos: NO leerlo salvo que se pida. Si difieren, manda este archivo.
-> Última actualización: 2026-11-21
+> Última actualización: 2026-11-22
 
 ## 1. Qué es
 
@@ -102,6 +102,7 @@ unit_price        = selling_price / unit_quantity
 | Lentitud general en PC del local | CustomTkinter dibuja cada widget en Canvas; tablas con widgets por fila; versiones nuevas de Python/Tk | Parcial: productos, ítems de venta e historial ya usan `ttk.Treeview` + `LIMIT` + debounce (issue #5). Las 4 vistas restantes conservan `CTkScrollableFrame` y `wheel_scroll.py` |
 | Sin respaldo de datos | No implementado | Resuelto (2026-11-13): backup automático al cerrar, API de sqlite3, carpeta/N configurables (issue #2) |
 | Aviso de entorno | Sin documentar ni avisar el desajuste Python/Tk | Resuelto (2026-11-19): `environment.py` avisa al arrancar si Python/Tk no son 3.12/3.13 + 8.6 (issue #3) |
+| Sin empaquetado para Windows | No había spec ni documentación de build | Resuelto (2026-11-22): spec `--onedir` + `BUILD.md`; base y backups junto al `.exe` (issue #9) |
 
 ## 8. Backlog priorizado (crear un issue por ítem, en este orden)
 
@@ -137,7 +138,7 @@ unit_price        = selling_price / unit_quantity
 5. ~~Índices en `products.name`, `sales.created_at`, `sale_items.sale_id`, `expenses.date`; `PRAGMA synchronous=NORMAL` con WAL; ventas en una transacción.~~ Hecho (issue #6, 2026-11-20).
 6. ~~Importación de listas: imports perezosos (`openpyxl`/`xlrd` solo al abrir la pestaña), procesar en hilo con progreso.~~ Hecho (issue #7, 2026-11-20).
 7. ~~Dinero en centavos enteros (migración de datos incluida y probada con copia de la base).~~ Hecho (issue #8).
-8. Empaquetado PyInstaller `--onedir` para Windows 11.
+8. ~~Empaquetado PyInstaller `--onedir` para Windows 11.~~ Hecho (issue #9, 2026-11-22).
 
 Ideas futuras (NO hacer sin pedido): exportar reportes a PDF/Excel, gráficos mensuales, historial de listas por proveedor, control de stock.
 
@@ -177,3 +178,4 @@ Límites:
 - 2026-11-20 — Índices de búsqueda, `synchronous=NORMAL` y venta atómica con rollback (issue #6): 51 tests.
 - 2026-11-20 — Lectura e importación de listas en hilo con barra de progreso; test que fija los imports perezosos de `openpyxl`/`xlrd` (issue #7): 55 tests.
 - 2026-11-21 — Dinero en centavos enteros (issue #8): esquema `INTEGER`, migración automática con backup previo, conversión en repositorios: 70 tests.
+- 2026-11-22 — Empaquetado PyInstaller onedir (issue #9): spec con recursos y assets de CustomTkinter, base junto al ejecutable, BUILD.md: 72 tests.
