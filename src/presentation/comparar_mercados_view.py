@@ -1,11 +1,11 @@
 import customtkinter as ctk
 from decimal import Decimal
 from datetime import date, timedelta
+from tkinter import ttk
 from typing import List
 
 from src.application.product_service import ProductService
 from src.domain.entities import Product
-from src.presentation.wheel_scroll import register_scrollable
 
 
 SORT_OPTIONS = {
@@ -16,6 +16,17 @@ SORT_OPTIONS = {
     "P. Unitario": "unit_price",
     "Fecha Lista": "list_date",
 }
+
+# Columnas de la tabla de resultados: (id interno, titulo, ancho)
+_RESULT_COLUMNS = (
+    ("name", "Producto", 260),
+    ("supplier", "Proveedor", 130),
+    ("category", "Categoria", 100),
+    ("sp", "P. Proveedor", 120),
+    ("sv", "P. Venta", 120),
+    ("up", "P. Unitario", 100),
+    ("ld", "Fecha Lista", 100),
+)
 
 
 class CompararMercadosView(ctk.CTkFrame):
@@ -81,20 +92,23 @@ class CompararMercadosView(ctk.CTkFrame):
         table_frame = ctk.CTkFrame(self)
         table_frame.pack(fill="both", expand=True, padx=20, pady=5)
 
-        _W = [1, 130, 100, 120, 120, 100, 100]
-        _H = ["Producto", "Proveedor", "Categoria", "P. Proveedor", "P. Venta", "P. Unitario", "Fecha Lista"]
-        hdr = ctk.CTkFrame(table_frame)
-        hdr.pack(fill="x", pady=2)
-        for h, w in zip(_H, _W):
-            kw = dict(text=h, font=("Arial", 11, "bold"), anchor="w")
-            if w == 1:
-                ctk.CTkLabel(hdr, **kw).pack(side="left", padx=3, fill="x", expand=True)
-            else:
-                ctk.CTkLabel(hdr, width=w, **kw).pack(side="left", padx=3)
+        self._results_tree = ttk.Treeview(
+            table_frame,
+            columns=[c[0] for c in _RESULT_COLUMNS],
+            show="headings",
+            selectmode="browse",
+        )
+        for col_id, title, width in _RESULT_COLUMNS:
+            self._results_tree.heading(col_id, text=title)
+            self._results_tree.column(col_id, width=width, anchor="w", stretch=True)
+        self._results_tree.tag_configure("old", foreground="#c62828")
 
-        self._results_container = ctk.CTkScrollableFrame(table_frame)
-        self._results_container.pack(fill="both", expand=True, pady=2)
-        register_scrollable(self._results_container)
+        tree_scroll = ttk.Scrollbar(
+            table_frame, orient="vertical", command=self._results_tree.yview
+        )
+        self._results_tree.configure(yscrollcommand=tree_scroll.set)
+        self._results_tree.pack(side="left", fill="both", expand=True, pady=2)
+        tree_scroll.pack(side="right", fill="y", pady=2)
 
         # Info label
         self._info_label = ctk.CTkLabel(
@@ -155,8 +169,8 @@ class CompararMercadosView(ctk.CTkFrame):
         self._render_results()
 
     def _render_results(self):
-        for w in self._results_container.winfo_children():
-            w.destroy()
+        for iid in self._results_tree.get_children():
+            self._results_tree.delete(iid)
 
         if not self._current_results:
             self._info_label.configure(
@@ -170,25 +184,18 @@ class CompararMercadosView(ctk.CTkFrame):
 
         cutoff = date.today() - timedelta(days=61)
         for product in self._current_results:
-            is_old = product.list_date < cutoff
-            color = ("#c62828", "#ef5350") if is_old else ("black", "white")
-
-            row = ctk.CTkFrame(self._results_container)
-            row.pack(fill="x", pady=1)
-
-            vals = [
-                product.name,
-                product.supplier,
-                product.category,
-                f"${product.supplier_price:,.2f}",
-                f"${product.selling_price:,.2f}",
-                f"${product.unit_price:,.2f}",
-                str(product.list_date),
-            ]
-            widths = [1, 130, 100, 120, 120, 100, 100]
-            for v, w in zip(vals, widths):
-                kw = dict(text=v, anchor="w", text_color=color)
-                if w == 1:
-                    ctk.CTkLabel(row, **kw).pack(side="left", padx=3, fill="x", expand=True)
-                else:
-                    ctk.CTkLabel(row, width=w, **kw).pack(side="left", padx=3)
+            tags = ("old",) if product.list_date < cutoff else ()
+            self._results_tree.insert(
+                "",
+                "end",
+                values=(
+                    product.name,
+                    product.supplier,
+                    product.category,
+                    f"${product.supplier_price:,.2f}",
+                    f"${product.selling_price:,.2f}",
+                    f"${product.unit_price:,.2f}",
+                    str(product.list_date),
+                ),
+                tags=tags,
+            )

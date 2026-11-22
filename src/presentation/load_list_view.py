@@ -2,7 +2,7 @@ import os
 import shutil
 import threading
 import customtkinter as ctk
-from tkinter import messagebox, filedialog
+from tkinter import messagebox, filedialog, ttk
 from datetime import date
 from decimal import Decimal
 
@@ -18,7 +18,6 @@ except ImportError:
 
 from src.application.list_service import ListService
 from src.application.settings_service import SettingsService
-from src.presentation.wheel_scroll import register_scrollable
 
 
 HEADER_KEYWORD_MAP = [
@@ -121,6 +120,13 @@ def _col_index(letter):
 
 _COL_LETTERS = [_col_letter(i) for i in range(20)]
 
+# Columnas de la tabla de listas subidas: (id interno, titulo, ancho)
+_UPLOADED_COLUMNS = (
+    ("filename", "Archivo", 260),
+    ("supplier", "Proveedor", 140),
+    ("list_date", "Fecha Lista", 110),
+)
+
 
 def _fgp_looks_valid(rows, header_idx):
     """Verifica que el formato FGP sea real (tiene Detalle + Descripcion)."""
@@ -155,6 +161,8 @@ class LoadListView(ctk.CTkFrame):
         self._progress_finished = False
         self._progress_busy_text = ""
         self._pending_import = None
+        self._uploaded_by_iid = {}  # iid del Treeview -> lista subida
+        self._selected_list_id = None
         self._build_ui()
         self.bind("<Map>", lambda e: (self._load_suppliers(), self._refresh_uploaded_lists()))
 
@@ -323,9 +331,41 @@ class LoadListView(ctk.CTkFrame):
             font=("Arial", 14, "bold"),
         ).pack(anchor="w", padx=10, pady=(10, 5))
 
-        self._uploaded_scroll = ctk.CTkScrollableFrame(uploaded_frame, height=150)
-        self._uploaded_scroll.pack(fill="both", expand=True, padx=10, pady=(0, 10))
-        register_scrollable(self._uploaded_scroll)
+        uploaded_actions = ctk.CTkFrame(uploaded_frame, fg_color="transparent")
+        uploaded_actions.pack(side="bottom", fill="x", padx=10, pady=(0, 10))
+
+        self._uploaded_empty_label = ctk.CTkLabel(
+            uploaded_actions, text="No hay listas subidas.", text_color="gray",
+        )
+        self._uploaded_empty_label.pack(side="left", padx=5)
+
+        self._delete_list_btn = ctk.CTkButton(
+            uploaded_actions, text="Eliminar", fg_color="#c62828", width=80, height=26,
+            font=("Arial", 10), state="disabled", command=self._delete_selected_list,
+        )
+        self._delete_list_btn.pack(side="right", padx=5)
+
+        tree_wrap = ctk.CTkFrame(uploaded_frame)
+        tree_wrap.pack(fill="both", expand=True, padx=10, pady=(0, 5))
+
+        self._uploaded_tree = ttk.Treeview(
+            tree_wrap,
+            columns=[c[0] for c in _UPLOADED_COLUMNS],
+            show="headings",
+            selectmode="browse",
+            height=5,
+        )
+        for col_id, title, width in _UPLOADED_COLUMNS:
+            self._uploaded_tree.heading(col_id, text=title)
+            self._uploaded_tree.column(col_id, width=width, anchor="w", stretch=True)
+
+        uploaded_scroll = ttk.Scrollbar(
+            tree_wrap, orient="vertical", command=self._uploaded_tree.yview
+        )
+        self._uploaded_tree.configure(yscrollcommand=uploaded_scroll.set)
+        self._uploaded_tree.pack(side="left", fill="both", expand=True)
+        uploaded_scroll.pack(side="right", fill="y")
+        self._uploaded_tree.bind("<<TreeviewSelect>>", self._on_uploaded_select)
 
     def _build_mapping_ui(self):
         ctk.CTkLabel(
@@ -1101,22 +1141,41 @@ class LoadListView(ctk.CTkFrame):
         self._reset_drop_zone()
 
     def _refresh_uploaded_lists(self):
-        for w in self._uploaded_scroll.winfo_children():
-            w.destroy()
+        for iid in self._uploaded_tree.get_children():
+            self._uploaded_tree.delete(iid)
+        self._uploaded_by_iid.clear()
+        self._selected_list_id = None
+        self._delete_list_btn.configure(state="disabled")
+
         lists = self._list_service.get_uploaded_lists()
         if not lists:
-            ctk.CTkLabel(self._uploaded_scroll, text="No hay listas subidas.", text_color="gray").pack(pady=10)
+            self._uploaded_empty_label.configure(text="No hay listas subidas.")
             return
+        self._uploaded_empty_label.configure(text="")
         for ul in lists:
-            row = ctk.CTkFrame(self._uploaded_scroll, fg_color="transparent")
-            row.pack(fill="x", padx=5, pady=2)
-            info = f"{ul.filename}  |  {ul.supplier}  |  {ul.list_date}"
-            ctk.CTkLabel(row, text=info, anchor="w", font=("Arial", 11)).pack(side="left", fill="x", expand=True)
-            ctk.CTkButton(
-                row, text="Eliminar", fg_color="#c62828", width=80, height=26,
-                font=("Arial", 10),
-                command=lambda lid=ul.id: self._confirm_delete_list(lid),
-            ).pack(side="right", padx=5)
+            iid = self._uploaded_tree.insert(
+                "",
+                "end",
+                values=(ul.filename, ul.supplier, str(ul.list_date)),
+            )
+            self._uploaded_by_iid[iid] = ul
+
+    def _on_uploaded_select(self, event=None):
+        selection = self._uploaded_tree.selection()
+        if not selection:
+            self._selected_list_id = None
+            self._delete_list_btn.configure(state="disabled")
+            return
+        ul = self._uploaded_by_iid.get(selection[0])
+        self._selected_list_id = ul.id if ul else None
+        self._delete_list_btn.configure(
+            state="normal" if self._selected_list_id is not None else "disabled"
+        )
+
+    def _delete_selected_list(self):
+        if self._selected_list_id is None:
+            return
+        self._confirm_delete_list(self._selected_list_id)
 
     def _confirm_delete_list(self, list_id: int):
         lists = self._list_service.get_uploaded_lists()
