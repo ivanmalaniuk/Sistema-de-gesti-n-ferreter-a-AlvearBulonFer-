@@ -3,7 +3,9 @@ Tests de la configuracion de SQLite: indices y PRAGMA.
 Se usa siempre una base temporal (tmp_path); nunca la ferreteria.db real.
 """
 
+import os
 import sqlite3
+import sys
 
 from src.infrastructure import database
 
@@ -39,3 +41,19 @@ def test_synchronous_normal_con_wal(tmp_path, monkeypatch):
 
     assert journal == "wal"
     assert synchronous == 1  # NORMAL
+
+
+def test_dir_datos_congelado_junto_al_ejecutable(tmp_path, monkeypatch):
+    monkeypatch.setattr(sys, "frozen", True, raising=False)
+    monkeypatch.setattr(sys, "executable", str(tmp_path / "Ferreteria.exe"))
+
+    assert database._dir_datos() == str(tmp_path)
+
+
+def test_dir_datos_sin_congelar_usa_raiz_del_repo(monkeypatch):
+    monkeypatch.setattr(sys, "frozen", False, raising=False)
+
+    raiz_esperada = os.path.dirname(
+        os.path.dirname(os.path.dirname(os.path.abspath(database.__file__)))
+    )
+    assert database._dir_datos() == raiz_esperada
