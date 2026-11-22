@@ -161,12 +161,17 @@ def _migrar_dinero_a_centavos(conn) -> None:
 
     Es idempotente: solo actua si alguna columna sigue declarada REAL. Antes
     de tocar datos crea un backup; si el backup falla, la migracion se aborta
-    y los datos originales quedan intactos.
+    y los datos originales quedan intactos. Las claves foraneas ya rotas antes
+    de migrar se conservan; solo se aborta si aparece una violacion nueva.
     """
     cursor = conn.cursor()
     tablas = _tablas_con_dinero_real(cursor)
     if not tablas:
         return
+
+    violaciones_antes = {
+        tuple(fila) for fila in cursor.execute("PRAGMA foreign_key_check")
+    }
 
     backup_dir, keep_last = _leer_config_backup(cursor)
     # Si el backup falla, la excepcion se propaga antes de modificar datos
@@ -183,7 +188,10 @@ def _migrar_dinero_a_centavos(conn) -> None:
         for sql in _SQL_INDICES:
             cursor.execute(sql)
 
-        if cursor.execute("PRAGMA foreign_key_check").fetchall():
+        violaciones_despues = {
+            tuple(fila) for fila in cursor.execute("PRAGMA foreign_key_check")
+        }
+        if violaciones_despues - violaciones_antes:
             raise sqlite3.IntegrityError(
                 "La migracion a centavos dejaria claves foraneas invalidas"
             )
