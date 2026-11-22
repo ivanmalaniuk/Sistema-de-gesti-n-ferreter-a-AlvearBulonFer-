@@ -398,3 +398,37 @@ def test_huerfanas_preexistentes_no_bloquean_la_migracion(tmp_path, monkeypatch)
         assert len(list(conn.execute("PRAGMA foreign_key_check"))) == 1
     finally:
         conn.close()
+
+
+def test_violacion_nueva_aborta_y_hace_rollback(tmp_path, monkeypatch):
+    ruta = str(tmp_path / "fk_nueva.db")
+    _crear_base_vieja(ruta)
+    monkeypatch.setattr(database, "DB_PATH", ruta)
+
+    reconstruir = database._reconstruir_tabla_en_centavos
+
+    def _reconstruir_con_fk_nueva(conn, tabla):
+        reconstruir(conn, tabla)
+        if tabla == "sale_items":
+            conn.execute(
+                """INSERT INTO sale_items
+                       (id, sale_id, product_id, quantity, unit_price, subtotal, cost_price)
+                   VALUES (99, 1, 999, 1, 1, 1, 0)"""
+            )
+
+    monkeypatch.setattr(
+        database, "_reconstruir_tabla_en_centavos", _reconstruir_con_fk_nueva
+    )
+
+    with pytest.raises(sqlite3.IntegrityError, match="claves foraneas invalidas"):
+        database.init_db()
+
+    conn = _conectar(ruta)
+    try:
+        # El rollback deja el esquema y los datos como antes de intentar migrar.
+        assert _tipos(conn, "products")["supplier_price"] == "REAL"
+        assert conn.execute(
+            "SELECT COUNT(*) FROM sale_items WHERE id = 99"
+        ).fetchone()[0] == 0
+    finally:
+        conn.close()
