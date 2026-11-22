@@ -1,10 +1,25 @@
 import customtkinter as ctk
-from tkinter import messagebox
+from tkinter import messagebox, ttk
 from datetime import date, timedelta
 
 from src.application.missing_item_service import MissingItemService
 from src.application.product_service import ProductService
-from src.presentation.wheel_scroll import register_scrollable
+
+
+# Columnas del resultado de busqueda en catalogo: (id interno, titulo, ancho)
+_RESULT_COLUMNS = (
+    ("name", "Articulo", 300),
+    ("supplier", "Proveedor", 150),
+    ("list_date", "Lista", 120),
+)
+
+# Columnas de la lista de faltantes: (id interno, titulo, ancho)
+_ITEM_COLUMNS = (
+    ("name", "Articulo", 260),
+    ("supplier", "Proveedor", 140),
+    ("notes", "Notas", 200),
+    ("created", "Fecha", 120),
+)
 
 
 class FaltantesView(ctk.CTkFrame):
@@ -12,6 +27,9 @@ class FaltantesView(ctk.CTkFrame):
         super().__init__(master)
         self._missing_service = missing_service
         self._product_service = product_service
+        self._result_products = {}  # iid del Treeview -> Product
+        self._items_by_iid = {}  # iid del Treeview -> item faltante
+        self._selected_item_id = None
         self._build_ui()
         self.bind("<Map>", lambda e: self._refresh_list())
 
@@ -32,9 +50,33 @@ class FaltantesView(ctk.CTkFrame):
         self._search_entry.grid(row=1, column=1, padx=5, pady=3, sticky="w")
         self._search_entry.bind("<Return>", self._on_search)
 
-        self._search_results_frame = ctk.CTkScrollableFrame(catalog_frame, height=150)
-        self._search_results_frame.grid(row=2, column=0, columnspan=4, sticky="ew", pady=2, padx=5)
-        register_scrollable(self._search_results_frame)
+        results_wrap = ctk.CTkFrame(catalog_frame)
+        results_wrap.grid(row=2, column=0, columnspan=4, sticky="ew", pady=2, padx=5)
+
+        self._search_results_tree = ttk.Treeview(
+            results_wrap,
+            columns=[c[0] for c in _RESULT_COLUMNS],
+            show="headings",
+            selectmode="browse",
+            height=6,
+        )
+        for col_id, title, width in _RESULT_COLUMNS:
+            self._search_results_tree.heading(col_id, text=title)
+            self._search_results_tree.column(col_id, width=width, anchor="w", stretch=True)
+        self._search_results_tree.tag_configure("old", foreground="#c62828")
+        self._search_results_tree.bind("<<TreeviewSelect>>", self._on_result_select)
+
+        results_scroll = ttk.Scrollbar(
+            results_wrap, orient="vertical", command=self._search_results_tree.yview
+        )
+        self._search_results_tree.configure(yscrollcommand=results_scroll.set)
+        self._search_results_tree.pack(side="left", fill="both", expand=True)
+        results_scroll.pack(side="right", fill="y")
+
+        self._search_info_label = ctk.CTkLabel(
+            catalog_frame, text="", font=("Arial", 10, "italic"),
+        )
+        self._search_info_label.grid(row=3, column=0, columnspan=4, sticky="w", padx=5)
 
         # === Seccion: agregar manualmente ===
         manual_frame = ctk.CTkFrame(self)
@@ -70,28 +112,54 @@ class FaltantesView(ctk.CTkFrame):
         list_frame = ctk.CTkFrame(self)
         list_frame.pack(fill="both", expand=True, padx=20, pady=5)
 
-        header_frame = ctk.CTkFrame(list_frame)
-        header_frame.pack(fill="x", pady=2)
-        headers = ["Articulo", "Proveedor", "Notas", "Fecha", ""]
-        widths = [1, 140, 200, 120, 35]
-        for h, w in zip(headers, widths):
-            kw = dict(text=h, font=("Arial", 12, "bold"), anchor="w")
-            if w == 1:
-                ctk.CTkLabel(header_frame, **kw).pack(side="left", padx=4, fill="x", expand=True)
-            else:
-                ctk.CTkLabel(header_frame, width=w, **kw).pack(side="left", padx=4)
+        actions = ctk.CTkFrame(list_frame, fg_color="transparent")
+        actions.pack(side="bottom", fill="x", pady=(0, 5))
 
-        self._items_container = ctk.CTkScrollableFrame(list_frame)
-        self._items_container.pack(fill="both", expand=True, pady=5)
-        register_scrollable(self._items_container)
+        self._empty_label = ctk.CTkLabel(
+            actions, text="", font=("Arial", 11, "italic"),
+        )
+        self._empty_label.pack(side="left", padx=5)
+
+        self._delete_btn = ctk.CTkButton(
+            actions, text="Eliminar seleccionado", fg_color="#c62828",
+            width=150, height=28, font=("Arial", 11), state="disabled",
+            command=self._delete_selected,
+        )
+        self._delete_btn.pack(side="right", padx=5)
+
+        tree_wrap = ctk.CTkFrame(list_frame)
+        tree_wrap.pack(fill="both", expand=True, pady=5)
+
+        self._items_tree = ttk.Treeview(
+            tree_wrap,
+            columns=[c[0] for c in _ITEM_COLUMNS],
+            show="headings",
+            selectmode="browse",
+        )
+        for col_id, title, width in _ITEM_COLUMNS:
+            self._items_tree.heading(col_id, text=title)
+            self._items_tree.column(col_id, width=width, anchor="w", stretch=True)
+
+        items_scroll = ttk.Scrollbar(
+            tree_wrap, orient="vertical", command=self._items_tree.yview
+        )
+        self._items_tree.configure(yscrollcommand=items_scroll.set)
+        self._items_tree.pack(side="left", fill="both", expand=True)
+        items_scroll.pack(side="right", fill="y")
+        self._items_tree.bind("<<TreeviewSelect>>", self._on_item_select)
 
     def _on_search(self, event=None):
         query = self._search_entry.get().strip()
-        for w in self._search_results_frame.winfo_children():
-            w.destroy()
+        self._clear_results()
         if not query:
             return
         self._do_search(query)
+
+    def _clear_results(self):
+        for iid in self._search_results_tree.get_children():
+            self._search_results_tree.delete(iid)
+        self._result_products.clear()
+        self._search_info_label.configure(text="")
 
     def _do_search(self, query):
         current = self._search_entry.get().strip()
@@ -99,26 +167,28 @@ class FaltantesView(ctk.CTkFrame):
             return
         matches = self._product_service.search_products(query)
         if not matches:
-            ctk.CTkLabel(
-                self._search_results_frame,
-                text="Sin resultados", font=("Arial", 10, "italic"),
-            ).pack(pady=5)
+            self._search_info_label.configure(text="Sin resultados")
             self._search_entry.focus_set()
             return
         cutoff = date.today() - timedelta(days=61)
         for product in matches:
-            is_old = product.list_date < cutoff
-            btn = ctk.CTkButton(
-                self._search_results_frame,
-                text=f"{product.name}  |  {product.supplier}  |  Lista: {product.list_date}",
-                anchor="w",
-                fg_color="transparent",
-                text_color=("#c62828", "#ef5350") if is_old else ("black", "white"),
-                hover_color=("#e0e0e0", "#333333"),
-                command=lambda p=product: self._add_from_catalog(p),
+            tags = ("old",) if product.list_date < cutoff else ()
+            iid = self._search_results_tree.insert(
+                "",
+                "end",
+                values=(product.name, product.supplier, str(product.list_date)),
+                tags=tags,
             )
-            btn.pack(fill="x", pady=1)
+            self._result_products[iid] = product
         self._search_entry.focus_set()
+
+    def _on_result_select(self, event=None):
+        selection = self._search_results_tree.selection()
+        if not selection:
+            return
+        product = self._result_products.get(selection[0])
+        if product is not None:
+            self._add_from_catalog(product)
 
     def _add_from_catalog(self, product):
         try:
@@ -128,8 +198,7 @@ class FaltantesView(ctk.CTkFrame):
                 notes=f"Cod: {product.code}  Lista: {product.list_date}",
             )
             self._search_entry.delete(0, "end")
-            for w in self._search_results_frame.winfo_children():
-                w.destroy()
+            self._clear_results()
             self._refresh_list()
         except Exception as e:
             messagebox.showerror("Error", str(e))
@@ -153,36 +222,45 @@ class FaltantesView(ctk.CTkFrame):
             messagebox.showerror("Error", str(e))
 
     def _refresh_list(self):
-        for w in self._items_container.winfo_children():
-            w.destroy()
+        for iid in self._items_tree.get_children():
+            self._items_tree.delete(iid)
+        self._items_by_iid.clear()
+        self._selected_item_id = None
+        self._delete_btn.configure(state="disabled")
+
         items = self._missing_service.get_all_items()
         if not items:
-            ctk.CTkLabel(
-                self._items_container,
-                text="No hay articulos faltantes registrados",
-                font=("Arial", 11, "italic"),
-            ).pack(pady=10)
+            self._empty_label.configure(
+                text="No hay articulos faltantes registrados"
+            )
             return
+        self._empty_label.configure(text="")
         for item in items:
-            row = ctk.CTkFrame(self._items_container)
-            row.pack(fill="x", pady=1)
             created = item.created_at.strftime("%d/%m/%Y") if item.created_at else ""
-            vals = [item.name, item.supplier, item.notes, created]
-            widths = [1, 140, 200, 120]
-            for v, w in zip(vals, widths):
-                kw = dict(text=v, anchor="w")
-                if w == 1:
-                    ctk.CTkLabel(row, **kw).pack(side="left", padx=4, fill="x", expand=True)
-                else:
-                    ctk.CTkLabel(row, width=w, **kw).pack(side="left", padx=4)
-            ctk.CTkButton(
-                row, text="X", width=35, fg_color="#c62828",
-                command=lambda iid=item.id: self._delete_item(iid),
-            ).pack(side="right", padx=4)
+            iid = self._items_tree.insert(
+                "",
+                "end",
+                values=(item.name, item.supplier, item.notes, created),
+            )
+            self._items_by_iid[iid] = item
 
-    def _delete_item(self, item_id):
+    def _on_item_select(self, event=None):
+        selection = self._items_tree.selection()
+        if not selection:
+            self._selected_item_id = None
+            self._delete_btn.configure(state="disabled")
+            return
+        item = self._items_by_iid.get(selection[0])
+        self._selected_item_id = item.id if item else None
+        self._delete_btn.configure(
+            state="normal" if self._selected_item_id is not None else "disabled"
+        )
+
+    def _delete_selected(self):
+        if self._selected_item_id is None:
+            return
         try:
-            self._missing_service.delete_item(item_id)
+            self._missing_service.delete_item(self._selected_item_id)
             self._refresh_list()
         except Exception as e:
             messagebox.showerror("Error", str(e))
