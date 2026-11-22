@@ -76,7 +76,14 @@ class FaltantesView(ctk.CTkFrame):
         self._search_info_label = ctk.CTkLabel(
             catalog_frame, text="", font=("Arial", 10, "italic"),
         )
-        self._search_info_label.grid(row=3, column=0, columnspan=4, sticky="w", padx=5)
+        self._search_info_label.grid(row=3, column=0, columnspan=3, sticky="w", padx=5)
+
+        self._add_result_btn = ctk.CTkButton(
+            catalog_frame, text="Agregar seleccionado", state="disabled",
+            command=self._add_selected_result, width=150, height=28,
+            font=("Arial", 11), fg_color="#1565c0",
+        )
+        self._add_result_btn.grid(row=3, column=3, padx=5, pady=3, sticky="e")
 
         # === Seccion: agregar manualmente ===
         manual_frame = ctk.CTkFrame(self)
@@ -160,6 +167,7 @@ class FaltantesView(ctk.CTkFrame):
             self._search_results_tree.delete(iid)
         self._result_products.clear()
         self._search_info_label.configure(text="")
+        self._add_result_btn.configure(state="disabled")
 
     def _do_search(self, query):
         current = self._search_entry.get().strip()
@@ -183,6 +191,13 @@ class FaltantesView(ctk.CTkFrame):
         self._search_entry.focus_set()
 
     def _on_result_select(self, event=None):
+        selection = self._search_results_tree.selection()
+        tiene_producto = bool(selection) and selection[0] in self._result_products
+        self._add_result_btn.configure(
+            state="normal" if tiene_producto else "disabled"
+        )
+
+    def _add_selected_result(self):
         selection = self._search_results_tree.selection()
         if not selection:
             return
