@@ -103,6 +103,7 @@ unit_price        = selling_price / unit_quantity
 | Sin respaldo de datos | No implementado | Resuelto (2026-11-13): backup automático al cerrar, API de sqlite3, carpeta/N configurables (issue #2) |
 | Aviso de entorno | Sin documentar ni avisar el desajuste Python/Tk | Resuelto (2026-11-19): `environment.py` avisa al arrancar si Python/Tk no son 3.12/3.13 + 8.6 (issue #3) |
 | Sin empaquetado para Windows | No había spec ni documentación de build | Resuelto (2026-11-22): spec `--onedir` + `BUILD.md`; base y backups junto al `.exe` (issue #9) |
+| Migración a centavos aborta al arrancar | 11 `sale_items` con producto borrado (FK rota previa); el check no distinguía su origen | Resuelto (2026-11-22): solo aborta si la migración agrega una violación nueva; conserva las viejas (issue #18) |
 
 ## 8. Backlog priorizado (crear un issue por ítem, en este orden)
 
@@ -179,3 +180,4 @@ Límites:
 - 2026-11-20 — Lectura e importación de listas en hilo con barra de progreso; test que fija los imports perezosos de `openpyxl`/`xlrd` (issue #7): 55 tests.
 - 2026-11-21 — Dinero en centavos enteros (issue #8): esquema `INTEGER`, migración automática con backup previo, conversión en repositorios: 70 tests.
 - 2026-11-22 — Empaquetado PyInstaller onedir (issue #9): spec con recursos y assets de CustomTkinter, base junto al ejecutable, BUILD.md: 72 tests.
+- 2026-11-22 — Fix: migración a centavos conserva FK huérfanas preexistentes y solo aborta ante violaciones nuevas (issue #18): 73 tests.
