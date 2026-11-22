@@ -366,3 +366,35 @@ def test_ruta_legado_reconstruye_sale_items(tmp_path, monkeypatch):
         assert _tipos(conn, "expenses")["amount"] == "INTEGER"
     finally:
         conn.close()
+
+
+def test_huerfanas_preexistentes_no_bloquean_la_migracion(tmp_path, monkeypatch):
+    ruta = str(tmp_path / "huerfanas.db")
+    _crear_base_vieja(ruta)
+
+    # Fila heredada que apunta a un producto borrado con FK desactivadas.
+    conn = sqlite3.connect(ruta)
+    conn.execute(
+        """INSERT INTO sale_items
+               (id, sale_id, product_id, quantity, unit_price, subtotal, cost_price)
+           VALUES (2, 1, 999, 1, 1.5, 1.5, 0)"""
+    )
+    conn.commit()
+    conn.close()
+    monkeypatch.setattr(database, "DB_PATH", ruta)
+
+    database.init_db()
+
+    conn = _conectar(ruta)
+    try:
+        assert _tipos(conn, "products")["supplier_price"] == "INTEGER"
+        assert _tipos(conn, "sale_items")["unit_price"] == "INTEGER"
+        item = conn.execute(
+            "SELECT product_id, unit_price FROM sale_items WHERE id = 2"
+        ).fetchone()
+        assert item["product_id"] == 999
+        assert item["unit_price"] == 150
+        # La violacion vieja se conserva; la migracion no agrega ninguna.
+        assert len(list(conn.execute("PRAGMA foreign_key_check"))) == 1
+    finally:
+        conn.close()
